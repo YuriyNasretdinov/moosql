@@ -399,7 +399,7 @@ class YNDb
 	
 	protected function read_struct_end($res, $name)
 	{
-		$lpath = $this->dir.'/'.$name.'.str';
+		$lpath = $this->dir.'/'.$name.'.lock';
 		
 		/*$str_fp = $res['str_fp'];
 		@flock($str_fp, LOCK_UN);
