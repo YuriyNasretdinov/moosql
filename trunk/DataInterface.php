@@ -1,4 +1,4 @@
-<?
+<?php
 // class for internal usage!
 
 require YN_HOME.'/core/Db.php';
@@ -57,7 +57,6 @@ final class YNDataInterface extends YNDb
 	// returns either array(...) with table structure, or false in case the table does not exist
 	// 
 	// if you want to check, if table exists and obtain the table structure, use this method instead of using both tableExists and getTableStructure,
-	// as tableExists() permanently locks the table (this will be fixed some time in the future), while this method does not
 	
 	// you will get an array with the following keys:
 	
@@ -66,7 +65,7 @@ final class YNDataInterface extends YNDb
 	
 	// 'aname' => 'field_name',  // Auto_increment NAME -- the name of auto_increment (and primary key) field
 	// 'acnt'  => N, // Auto_increment CouNT -- a value of auto_increment counter, which allows you to estimate,
-	//               // how many entries are there in the database. You should not rely on this value, as some
+	//               // how many entries there are in the database. You should not rely on this value, as some
 	//               // entries can be inserted in parallel after you recieve it
 	
 	// 'unique' => array('field1', 'field2', ..., 'fieldN'), // a list of names of columns with UNIQUE index
@@ -105,9 +104,6 @@ final class YNDataInterface extends YNDb
 	function openTable_FullScan($name, $columns = false)
 	{
 		if(!$this->lock_table($name)) return false;
-		
-		// oh yeah, better use exceptions :)
-		// perhaps it will be rewritten to use them
 		
 		try
 		{
@@ -153,9 +149,9 @@ final class YNDataInterface extends YNDb
 	
 	function fetchRow_FullScan($resource)
 	{
-		if(!$resource) /*return $this->set_error*/ throw new Exception('Invalid resource specified');
+		if(!$resource) throw new Exception('Invalid resource specified');
 		
-		list( ,$fp, $columns, $fields, $end) = $resource;
+		list(, $fp, $columns, $fields, $end) = $resource;
 		
 		if(ftell($fp)>=$end) return false;
 		
@@ -254,11 +250,10 @@ final class YNDataInterface extends YNDb
 		return array($name, $columns, $col, $value, $meta, $type, $pointers, $fp, $uniqid, $fields);
 	}
 	
+	protected var $EM_results_cache = array();
+	
 	function fetchRow_Index_ExactMatch($resource)
 	{
-		static $results_cache = array(); // array( uniqid => array( entry1, entry2, entry3, ... ) )
-		//static $results_index_cache = array(); // array( uniqid => counter )
-		
 		if(!$resource) /*return $this->set_error*/ throw new Exception('Invalid resource specified');
 		
 		list($name, $columns, $col, $value, $meta, $type, $pointers, $fp, $uniqid, $fields) = $resource;
@@ -269,9 +264,9 @@ final class YNDataInterface extends YNDb
 				
 				$pfp = $pointers;
 				
-				if(isset($results_cache[$uniqid]))
+				if(isset($this->EM_results_cache[$uniqid]))
 				{
-					unset($results_cache[$uniqid]);
+					unset($this->EM_results_cache[$uniqid]);
 					return false; // only 1 entry can be returned
 				}
 				
@@ -291,16 +286,16 @@ final class YNDataInterface extends YNDb
 				
 				if($offset < 0) return false; // negative values mean that entry is deleted (oh yes, I know that it is a waste of space :))
 				
-				$results_cache[$uniqid] = true; // a flag that should indicate that an entry (max. 1 entry) is returned and no need to return it again
+				$this->EM_results_cache[$uniqid] = true; // a flag that should indicate that an entry (max. 1 entry) is returned and no need to return it again
 				
 				break;
 			case DI_INDEX_UNIQUE:
 			
 				$ufp = $pointers;
 				
-				if(isset($results_cache[$uniqid]))
+				if(isset($this->EM_results_cache[$uniqid]))
 				{
-					unset($results_cache[$uniqid]);
+					unset($this->EM_results_cache[$uniqid]);
 					return false; // only 1 entry can be returned
 				}
 				
@@ -310,29 +305,29 @@ final class YNDataInterface extends YNDb
 				
 				list(,$offset) = $res;
 				
-				$results_cache[$uniqid] = true; // a flag that should indicate that an entry (max. 1 entry) is returned and no need to return it again
+				$this->EM_results_cache[$uniqid] = true; // a flag that should indicate that an entry (max. 1 entry) is returned and no need to return it again
 				
 				break;
 			case DI_INDEX_INDEX:
 			
 				list($ifp, $ifpi) = $pointers;
 				
-				if(!isset($results_cache[$uniqid]))
+				if(!isset($this->EM_results_cache[$uniqid]))
 				{
 					$res = $this->I->BTRI->search($ifp, $ifpi, $meta[$col], $value);
 					
 					if(!$res) return false;
 					
-					$results_cache[$uniqid] = $res;
+					$this->EM_results_cache[$uniqid] = $res;
 				}
 				
-				if(!sizeof($results_cache[$uniqid]))
+				if(!sizeof($this->EM_results_cache[$uniqid]))
 				{
-					unset($results_cache[$uniqid]);
+					unset($this->EM_results_cache[$uniqid]);
 					return false; // all entries already returned
 				}
 				
-				$offset = array_pop($results_cache[$uniqid]); // succeedingly decreasing number of elements to return until nothing left
+				$offset = array_pop($this->EM_results_cache[$uniqid]); // succeedingly decreasing number of elements to return until nothing left
 				
 				break;
 			default:
@@ -352,6 +347,9 @@ final class YNDataInterface extends YNDb
 	
 	function closeTable_Index_ExactMatch($resource)
 	{
+		list($name, $columns, $col, $value, $meta, $type, $pointers, $fp, $uniqid, $fields) = $resource;
+		unset($this->EM_results_cache[$uniqid]);
+		
 		if(!$resource) /*return $this->set_error*/ throw new Exception('Invalid resource specified');
 		
 		return $this->unlock_table($resource[0] /*name*/);
@@ -412,7 +410,21 @@ final class YNDataInterface extends YNDb
 	
 	function closeTable_Index_ExactMatchList($resource)
 	{
-		return true; // all required actions are already performed in fetchRow
+		$i = $resource;
+		
+		if(!$i || !isset($this->EML_opened_tables[$i])) throw new Exception('Invalid resource specified');
+		
+		if(isset($this->EML_opened_tables[$i]))
+		{
+			foreach($this->EML_opened_tables[$i] as $el)
+			{
+				$this->closeTable_Index_ExactMatch($el)
+			}
+			
+			unset($this->EML_opened_tables[$i]);
+		}
+		
+		return true;
 	}
 	
 	function openTable_Index_Range($name, $columns, $col, $min, $max)

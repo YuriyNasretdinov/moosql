@@ -1,21 +1,22 @@
-<?
+<?php
 // Realization of index, dependant on B-TREE
 // The write methods of the class must not be called simultaneously by several processes
 
-final class YNBTree_Idx
+final class YNBTree_Idx_gen
 {
-    private $BTR = null;
-    private $DB = null;
+    protected $BTR = null;
+    protected $DB = null;
     
-    /* $db  -- YNDb object
-       $fp  -- .btr file pointer (r+b)
-       $fpi -- .idx file pointer (r+b)
+    /* $db_obj -- database object
+       $blksz    -- block size (if unsure, use 2048 bytes)
+       $itemsz   -- element size (usually 1,2,4 or 8)
+       $pack_key -- name of key for pack (e.g. l, I, etc)
     */
     
-    function __construct($db)
+    function __construct($db_obj, $blksz, $itemsz, $pack_key)
     {
-        $this->BTR = new YNBTree($db);
-        $this->DB = $db;
+        $this->BTR = new YNBTree_gen($db_obj, $blksz, $itemsz, $pack_key);
+        $this->DB = $db_obj;
     }
     
     function __destruct()
