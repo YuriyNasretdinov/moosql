@@ -1,6 +1,6 @@
-<?
+<?php
 /*
-  The PHP realization of B-TREES (required for libindex),
+  The PHP realization of generalized B-TREES (required for libindex),
 
   based on description at
   
@@ -14,8 +14,8 @@
 
 // minimum and maximum number of children in BTREE node
 
-define('BTR_L', 85);
-define('BTR_U', 170);
+//define('BTR_L', 85);
+//define('BTR_U', 170);
 define('BTR_DEBUG', false);
 
 // debug
@@ -23,7 +23,7 @@ define('BTR_DEBUG', false);
 //define('BTR_U',8);
 //define('BTR_DEBUG', true);
 
-define('BTR_BLKSZ', (BTR_U*3 /* N:ISLEAF:P1:...:PU:V1:...:V(U-1):OFF_1:...:OFF_(U-1) */)*4 + 8 /* 8 NULL bytes */); // should be 2048
+//define('BTR_BLKSZ', (BTR_U*3 )*4 + 8 /* 8 NULL bytes */); // should be 2048
 
 if(!function_exists('pack_v'))
 {
@@ -33,17 +33,50 @@ if(!function_exists('pack_v'))
     }
 }
 
-class YNBTree
+class YNBTree_gen
 {
-    private $DB = null; /* DB instance */
+    protected $DB = null; /* DB instance */
+    
+    /* block meta info (set up at construction time) */
+    
+    protected $blksz = 2048;
+    protected $itemsz = 4;
+    protected $pack_key = 'l';
+    
+    /* BTree block L and U numbers (calculated at construction time) */
+    
+    protected $L = 85;
+    protected $U = 170;
+    
     
     /* $db_obj -- database object
-       $fp     -- file resource of a tree ( should be opened in "r+b" mode and be locked from concurrent writes )
+       $blksz    -- block size (if unsure, use 2048 bytes)
+       $itemsz   -- element size (usually 1,2,4 or 8)
+       $pack_key -- name of key for pack (e.g. l, I, etc)
+       
     */
     
-    function __construct($db_obj)
+    function __construct($db_obj, $blksz, $itemsz, $pack_key)
     {
         $this->DB = $db_obj;
+        
+        if(strlen(pack($pack_key,M_PI)) != $itemsz) throw new Exception('Pack key '.htmlspecialchars($pack_key).' does not match item size '.htmlspecialchars($itemsz));
+        
+        $this->blksz = $blksz;
+        $this->itemsz = $itemsz;
+        $this->pack_key = $pack_key;
+        
+        // the block format is the following:
+        
+        /* N:ISLEAF:P1:...:PU:V1:...:V(U-1):OFF_1:...:OFF_(U-1) */
+        
+        // P -- pointers, V -- values, OFF -- offsets
+        // pointers and offsets are 32-bit
+        // size of values is variable
+        
+        // the formula below was carefully calculated on a sheet of paper
+        $this->L = floor( floor( ($blksz + $itemsz - 4) / (8 + $itemsz) ) / 2 );
+        $this->U = 2*$this->L;
     }
     
     function __destruct()
@@ -69,16 +102,22 @@ class YNBTree
     }
     
     /*
-        returns array( $N, $ISLEAF, $pointers[BTR_U], $values[BTR_U-1], $offsets[BTR_U-1] )
+        returns array( $N, $ISLEAF, $pointers[U], $values[U-1], $offsets[U-1] )
     */
     
     /*private */function read_block($fp, &$meta, $pos)
     {
+        $BLKSZ = $this->blksz;
+        $P = $this->pack_key;
+        $U = $this->U;
+        $L = $this->L;
+        $SZ = $this->itemsz;
+        
 		$st=microtime(true);
 	
         fseek($fp, $pos, SEEK_SET);
         
-        $data = fread($fp, BTR_BLKSZ);
+        $data = fread($fp, $this->blksz);
         
         //echo 'BTR: Read block at '.$pos." (".strlen($data)." bytes)<br>\n";
         
@@ -86,27 +125,27 @@ class YNBTree
         
         //echo 'Trace:<pre>', !print_r($tr), "</pre><br>\n";
         
-        if(strlen($data) != BTR_BLKSZ) return false;
+        if(strlen($data) != $BLKSZ) throw new Exception('B-Tree corrupt');
         
         list(,$N) = unpack('l', substr($data, 0, 4));
         list(,$ISLEAF) = unpack('l', substr($data, 4, 4));
         
-        $pointers = array_values( unpack('l'.BTR_U,     substr($data, 8,             BTR_U*4     ) ) );
-        $values   = array_values( unpack('l'.(BTR_U-1), substr($data, 8+BTR_U*4,     (BTR_U-1)*4 ) ) );
-        $offsets  = array_values( unpack('l'.(BTR_U-1), substr($data, 8-4+2*BTR_U*4, (BTR_U-1)*4 ) ) );
+        $pointers = array_values( unpack('l'.$U,     substr($data, 8,                 $U*4       ) ) );
+        $values   = array_values( unpack($P.($U-1),  substr($data, 8+$U*4,            ($U-1)*$SZ ) ) );
+        $offsets  = array_values( unpack('l'.($U-1), substr($data, 8+$U*4+($U-1)*$SZ, ($U-1)*4   ) ) );
         
-		$GLOBALS['read_block_time'] += microtime(true)-$st;
+		@$GLOBALS['read_block_time'] += microtime(true)-$st;
 		
         return array( $N, $ISLEAF, $pointers, $values, $offsets );
     }
     
     /*
     
-    writes block to $pos and data $data_arr = array( $N, $ISLEAF, $pointers[BTR_U], $values[BTR_U-1], $offsets[BTR_U-1] )
+    writes block to $pos and data $data_arr = array( $N, $ISLEAF, $pointers[U], $values[U-1], $offsets[U-1] )
     
     */
     
-    private function write_block($fp, &$meta, $pos, $data_arr)
+    protected function write_block($fp, &$meta, $pos, $data_arr)
     {
 		$st=microtime(true);
 	
@@ -116,19 +155,20 @@ class YNBTree
         
         $data .= pack('ll', $N, $ISLEAF);
         
-        $data .= pack_v( 'l'.BTR_U, $pointers );
-        $data .= pack_v( 'l'.(BTR_U-1), $values );
-        $data .= pack_v( 'l'.(BTR_U-1), $offsets );
+        $data .= pack_v('l'.$this->U, $pointers );
+        $data .= pack_v( $this->pack_key.($this->U-1), $values );
+        $data .= pack_v( 'l'.($this->U-1), $offsets );
         
-        $data .= str_repeat(chr(0), BTR_BLKSZ - strlen($data)); // should be 8 NULL bytes to fill the difference between the actual block size and the amount of data written
+        // the space in a block can be used not 100%, several bytes can be "wasted" as U=2L and both should be integers 
+        $data .= str_repeat(chr(0), $this->blksz - strlen($data));
         
         //echo 'Data written: '.strlen($data).'<br>';
         
         fseek($fp, $pos, SEEK_SET);
 
-		$GLOBALS['write_block_time'] += microtime(true)-$st;
+		@$GLOBALS['write_block_time'] += microtime(true)-$st;
 		
-        return fputs($fp,$data);
+        if(!fwrite($fp,$data)) throw new Exception('B-Tree write block failed at position '.$pos);
     }
     
     /* allocates empty node
@@ -141,14 +181,14 @@ class YNBTree
         fseek($fp, 0, SEEK_END);
         $pos = ftell($fp);
         
-        fputs($fp, str_repeat(chr(0), BTR_BLKSZ));
+        fputs($fp, str_repeat(chr(0), $this->blksz));
         
         $N = 0;
         $ISLEAF = 1;
         
-        $pointers = array_fill(0, BTR_U, 0);
-        $values   = array_fill(0, BTR_U-1, 0);
-        $offsets  = array_fill(0, BTR_U-1, 0);
+        $pointers = array_fill(0, $this->U, 0);
+        $values   = array_fill(0, $this->U-1, 0);
+        $offsets  = array_fill(0, $this->U-1, 0);
         
         return array( $pos, array( $N, $ISLEAF, $pointers, $values, $offsets ) );
     }
@@ -171,7 +211,7 @@ class YNBTree
 
 		$meta['root'] = $pos;
         
-        return $this->write_block($fp, $meta, $pos, $data_arr);
+        $this->write_block($fp, $meta, $pos, $data_arr);
     }
     
     /*
@@ -189,6 +229,8 @@ class YNBTree
         $i = 0;
 
         list($N, $ISLEAF, $pointers, $values, $offsets) = $data_arr;
+        
+        //print_r($data_arr);
         
         while($i < $N && $val > $values[$i]) $i++;
         
@@ -218,98 +260,6 @@ class YNBTree
 		//$search_time = microtime(true) - $start;
 		
 		return $this->search($fp, $meta, $this->read_root($fp,$meta), $val);
-		
-		// something is wrong with the realization above :(
-		
-		$pointer = $meta['root'];
-		
-		//$start = microtime(true);
-		
-		//echo '<b>fsearch call: '.$val.'</b><br>';
-		
-		while(true)
-		{
-			fseek($fp, $pointer);
-			list(,$N,$ISLEAF) = unpack('l2',fread($fp, 8));
-			fseek($fp, BTR_U*4, SEEK_CUR); // skip "pointers" section
-			
-			// perform a binary search
-			$l = ftell($fp);
-			$r = $l + 4 + $N*4;
-			
-			$v = $val - 1; // set initial $v not equal to $val :)
-			
-			//echo 'N = '.$N.', l = '.$l.', r = '.$r.'<br>';
-			
-			
-			while($r - $l > 4)
-			{
-				$mid = floor( ($r + $l)/2/4 )*4;
-				
-				fseek($fp, $mid);
-				list(,$v) = unpack('l',fread($fp,4));
-				
-				//echo 'mid: '.$mid.'; '.$v.' vs. '.$val.'<br>';
-				
-				if($v == $val) break;
-				
-				if($v < $val) $l = $mid;
-				else          $r = $mid;
-			}
-			/*
-			$mid = $l;
-			fseek($fp,$mid);
-			
-			for($i = 0; $i < $N; $i++)
-			{
-				list(,$v) = fread($fp, 4);
-				
-				if($v == $val) break;
-				
-				$mid += 4;
-			}
-			*/
-			
-			//echo 'out of cycle<br>';
-			
-			if($v != $val)
-			{
-				if($ISLEAF)
-				{
-					//if($search_res != false) echo 'fsearch lost info (ISLEAF)<br>';
-					return false; // no such entry
-				}
-				
-				fseek($fp, $pointer+8+($N+1)*4-4); // read the last pointer
-				list(,$pointer) = unpack('l',fread($fp,4));
-				
-				//echo 'jump '.$pointer.'<br>';
-				
-				if(!$pointer)
-				{
-					//if($search_res != false) echo 'fsearch lost info (NULL POINTER)<br>';
-					return false;
-				}
-			}else
-			{
-				fseek($fp, $mid + BTR_U*4 - 4); // get the offset with index $r
-				list(,$offset) = unpack('l',fread($fp,4));
-				
-				//$fsearch_time = microtime(true) - $start;
-				
-				//list($v1, $offset1) = $search_res;
-				
-				//echo 'fsearch/search: '.round($fsearch_time/$search_time,2).'<br>';
-				
-				/*if($v1 != $v || $offset != $offset1)
-				{
-					echo '<b>fsearch returns:</b> '.$v.':'.$offset.'<br>';
-					echo 'the correct answer is '.$v1.':'.$offset1.'<br>';
-				}*/
-				
-				return array( $v, $offset );
-			}
-		}
 	}
     
     /*
@@ -362,20 +312,20 @@ class YNBTree
         
         $ISLEAF_z = $ISLEAF_y;
         
-        $N_z = BTR_L - 1;
+        $N_z = $this->L - 1;
         
-        for($j = 0; $j < BTR_L - 1; $j++)
+        for($j = 0; $j < $this->L - 1; $j++)
         {
-            $values_z[$j] = $values_y[$j + BTR_L];
-            $offsets_z[$j] = $offsets_y[$j + BTR_L];
+            $values_z[$j] = $values_y[$j + $this->L];
+            $offsets_z[$j] = $offsets_y[$j + $this->L];
         }
         
         if(!$ISLEAF_y)
         {
-            for($j = 0; $j < BTR_L; $j++) $pointers_z[$j] = $pointers_y[$j+BTR_L];
+            for($j = 0; $j < $this->L; $j++) $pointers_z[$j] = $pointers_y[$j+$this->L];
         }
         
-        $N_y = BTR_L - 1;
+        $N_y = $this->L - 1;
         
         for($j = $N_x; $j >= $i+1; $j--)
         {
@@ -390,8 +340,8 @@ class YNBTree
             $offsets_x[$j+1] = $offsets_x[$j];
         }
         
-        $values_x[$i] = $values_y[BTR_L-1];
-        $offsets_x[$i] = $offsets_y[BTR_L-1];
+        $values_x[$i] = $values_y[$this->L-1];
+        $offsets_x[$i] = $offsets_y[$this->L-1];
         
         $N_x++;
         
@@ -433,11 +383,11 @@ class YNBTree
     {
         $data_arr_r = $this->read_root($fp, $meta);
         
-        if(!$data_arr_r) return false; // no root!
+        if(!$data_arr_r) throw new Exception('Root not found'); // no root!
         
-        if($this->fsearch($fp, $meta, $value) !== false) return $this->set_error('Duplicate key');
+        if($this->fsearch($fp, $meta, $value) !== false) throw new Exception('Duplicate key');
         
-        if($data_arr_r[0] == BTR_U-1) // root is full
+        if($data_arr_r[0] == $this->U-1) // root is full
         {
             list( $pos_s, $data_arr_s ) = $this->allocate_node($fp, $meta);
             
@@ -511,7 +461,7 @@ class YNBTree
             $i++;
             $data_arr_chld = $this->read_block($fp, $meta, $pointers[$i]);
             
-            if($data_arr_chld[0] == BTR_U-1) // node is full
+            if($data_arr_chld[0] == $this->U-1) // node is full
             {
                 list($blk_arr, $blk_arr_chld,) = $this->split_child($fp, $meta, $pos, $data_arr, $i, $pointers[$i], $data_arr_chld);
                 
@@ -577,11 +527,13 @@ class YNBTree
         }else
         {
             // not so easy:
-            // first, recursively find a separator value in left subtree -- the largest value in the left subtree, it will still be less than our value
+            // first, recursively find a separator value in left subtree -- the largest value
+            // in the left subtree, it will still be less than our value
             
             // the separator value should be in a leaf node
             // if it is not true
-            // (the rightmost leaf node is empty, which would be impossible if we balanced the tree, but we don't, so there is such possibility),
+            // (the rightmost leaf node is empty, which would be impossible if we balanced the tree, but we don't balance it
+            // , so there is such possibility),
             // then we should delete the rightmost element in it's parent node if it's parent is not a current node and
             // just the req. element and the left pointer if the parent node is current :)
             
@@ -715,7 +667,7 @@ class YNBTree
             }
         }
         
-        if(!$this->write_block($fp, $meta, $pos, array( $N, $ISLEAF, $pointers, $values, $offsets ))) return false; // error should be already set by write_block
+        $this->write_block($fp, $meta, $pos, array( $N, $ISLEAF, $pointers, $values, $offsets ));
         
         // TODO: rebalance tree after deletion, remove section where $N_t == 0 as impossible condition
         

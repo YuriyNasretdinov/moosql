@@ -1,4 +1,4 @@
-<?
+<?php
 // descriptor caching (can really improve speed in some cases)
 
 $fopen_cache = array();
@@ -27,6 +27,9 @@ function fopen_cached($name, $mode, $lock = false) // note, that arguments are n
 		return false; // do not cache fopen() failures
 	}
 	
+	// $lock parameter is deprecated and must not be used
+	// as you can see, it even will not work :)
+	
 	if($lock!==false)// @flock($fp, $lock);
 	{
 		print_r(debug_backtrace());
@@ -37,13 +40,23 @@ function fopen_cached($name, $mode, $lock = false) // note, that arguments are n
 	return $fp;
 }
 
+function fclose_cached($name, $mode)
+{
+	global $fopen_cache;
+	
+	$key = $name.':'.$mode;
+	$el = $fopen_cache[$key];
+	fclose($el['fp']);
+	unset($fopen_cache[$key]);
+}
+
 // note that you must pass not the resource, but a name of file
 function flock_cached($name, $mode, $operation)
 {
 	global $fopen_cache;
 	
 	$key = $name.':'.$mode;
-	if(!isset($fopen_cache[$key])) return false;
+	if(!isset($fopen_cache[$key])) throw new Exception('File not opened');
 	
 	$entry = &$fopen_cache[$key];
 	

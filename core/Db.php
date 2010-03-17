@@ -122,7 +122,7 @@ class YNDb
 	 * autofield -- name of AUTO_INCREMENT field. Note, that AUTO_INCREMENT
 	 * field is considered as PRIMARY INDEX, and MUST BE SET in every table
 	 * 
-	 * uniquefield -- name of field with UNIQUE index (such field should have
+	 * uniquefield -- name of field with UNIQUE index (such field must have
 	 * only distinct values)
 	 * 
 	 * indexfield -- name of field with INDEX (like UNIQUE, but coincident
@@ -145,24 +145,24 @@ class YNDb
 			{
 				if(strrpos($k,$c)!==false)
 				{
-					return $this->set_error('Invalid column name. Column names must not contain the following characters: '.$forb_descr);
+					throw new Exception('Invalid column name. Column names must not contain the following characters: '.$forb_descr);
 				}
 			}
 			
 			if(strlen($k) >= 2 && substr($k, 0, 2)=='__')
 			{
-				return $this->set_error('You cannot use field names, which begin with "__" (these names are reserved for system use)');
+				throw new Exception('You cannot use field names, which begin with "__" (these names are reserved for system use)');
 			}
 		}
 				
 		if(sizeof($inv = array_udiff($fields, $types = array('BYTE', 'INT', 'TINYTEXT', 'TEXT', 'LONGTEXT', 'DOUBLE'), 'strcmp')))
 		{
-			return $this->set_error('Invalid type(s): '.implode(', ', $inv).'. Valid are: '.implode(', ',$types));
+			throw new Exception('Invalid type(s): '.implode(', ', $inv).'. Valid are: '.implode(', ',$types));
 		}
 		
 		if(empty($params['AUTO_INCREMENT']))
 		{
-			return $this->set_error('Table must have AUTO_INCREMENT field!');
+			throw new Exception('Table must have AUTO_INCREMENT field!');
 		}
 		
 		
@@ -170,8 +170,10 @@ class YNDb
 		
 		if(@$fields[$params['AUTO_INCREMENT']['name']] != 'INT')
 		{
-			return $this->set_error('AUTO_INCREMENT field must exist and have INT type');
+			throw new Exception('AUTO_INCREMENT field must exist and have INT type');
 		}
+		
+		$supp_idx = array( 'BYTE', 'INT', 'DOUBLE' );
 		
 		foreach(array('INDEX', 'UNIQUE') as $type)
 		{
@@ -185,9 +187,9 @@ class YNDb
 			
 			foreach($params[$type] as $field_name)
 			{
-				if(@$fields[$field_name] != 'INT')
+				if(@!in_array($fields[$field_name], $supp_idx))
 				{
-					return $this->set_error($type.'('.$field_name.') field must exist and have INT type');
+					throw new Exception($type.'('.$field_name.') field must exist and have one of the following types: '.implode(',', $supp_idx));
 				}
 			}
 		}
@@ -200,7 +202,7 @@ class YNDb
 		
 		if(in_array($aname, $index) || in_array($aname, $unique))
 		{
-			return $this->set_error('AUTO_INCREMENT field must not be indexed explicitly.');
+			throw new Exception('AUTO_INCREMENT field must not be indexed explicitly.');
 		}
 		
 		/*
@@ -220,60 +222,71 @@ class YNDb
 		
 		if( sizeof(array_unique($index)) != sizeof($index) || sizeof(array_unique($unique)) != sizeof($unique) )
 		{
-			return $this->set_error('One or more fields are indexed more than once.');
+			throw new Exception('One or more fields are indexed more than once.');
 		}
 		
 		if( sizeof($duplicate_idx = array_intersect( $index, $unique )) )
 		{
-			return $this->set_error('You must not specify both INDEX and UNIQUE for any field. Fields with duplicate indexes are: '.implode(', ', $duplicate_idx));
+			throw new Exception('You must not specify both INDEX and UNIQUE for any field. Fields with duplicate indexes are: '.implode(', ', $duplicate_idx));
 		}
 		
 		$meta = array();
 		
-		if(!@$str_fp=fopen($this->dir.'/'.$name.'.str', 'x')) return $this->set_error('The table already exists');
+		if(!@$lock_fp=fopen($this->dir.'/'.$name.'.lock', 'x')) throw new Exception('The table already exists -- the lock file is present.');
 		
-			fclose(fopen($this->dir.'/'.$name.'.dat','wb'));
-			fclose(fopen($this->dir.'/'.$name.'.pri', 'wb'));
+		//if(!@$str_fp=fopen($this->dir.'/'.$name.'.str', 'x')) throw new Exception('The table already exists');
+		
+		fclose(fopen($this->dir.'/'.$name.'.dat','wb'));
+		fclose(fopen($this->dir.'/'.$name.'.pri', 'wb'));
+		
+		if($params['INDEX'])
+		{
+			fclose(fopen($this->dir.'/'.$name.'.idx', 'ab'));
+			fclose(fopen($this->dir.'/'.$name.'.btr', 'ab'));
 			
-			if($params['INDEX'])
+			$fpi = fopen($this->dir.'/'.$name.'.idx', 'r+b');
+			$fp = fopen($this->dir.'/'.$name.'.btr', 'r+b');
+			
+			foreach($params['INDEX'] as $field_name)
 			{
-				fclose(fopen($this->dir.'/'.$name.'.idx', 'ab'));
-				fclose(fopen($this->dir.'/'.$name.'.btr', 'ab'));
+				$class = $this->I->idx_type_to_classname($fields[$field_name]);
 				
-				$fpi = fopen($this->dir.'/'.$name.'.idx', 'r+b');
-				$fp = fopen($this->dir.'/'.$name.'.btr', 'r+b');
-				
-				foreach($params['INDEX'] as $field_name)
-				{
-					$meta[$field_name] = array();
-					$this->I->BTRI->create($fp, $fpi, $meta[$field_name]);
-				}
-				
-				
-				unset($btri);
-				fclose($fp);
-				fclose($fpi);
+				$meta[$field_name] = array();
+				$this->I->$class->create($fp, $fpi, $meta[$field_name]);
 			}
 			
-			if($params['UNIQUE'])
-			{
-				fclose(fopen($this->dir.'/'.$name.'.btr', 'ab'));
 			
-				$fp = fopen($this->dir.'/'.$name.'.btr', 'r+b');
-				
-				foreach($params['UNIQUE'] as $field_name)
-				{
-					$meta[$field_name] = array();
-					$this->I->BTR->create($fp, $meta[$field_name]);
-				}
-				
-				unset($btr);
-				fclose($fp);
-			}
+			unset($btri);
+			fclose($fp);
+			fclose($fpi);
+		}
 		
+		if($params['UNIQUE'])
+		{
+			fclose(fopen($this->dir.'/'.$name.'.btr', 'ab'));
+		
+			$fp = fopen($this->dir.'/'.$name.'.btr', 'r+b');
+			
+			foreach($params['UNIQUE'] as $field_name)
+			{
+				$class = $this->I->uni_type_to_classname($fields[$field_name]);
+				
+				$meta[$field_name] = array();
+				$this->I->$class->create($fp, $meta[$field_name]);
+			}
+			
+			unset($btr);
+			fclose($fp);
+		}
+		
+		$params['AUTO_INCREMENT']['cnt'] = 0;
+		
+		$str_fp = fopen($this->dir.'/'.$name.'.str', 'wb');
 		fputs($str_fp, serialize(array($fields,$params,$meta)));
 		fclose($str_fp);
 		mkdir($this->dir . '/plans'); // create directory for execution plans
+		
+		fclose($lock_fp);
 		
 		return true;
 	}
@@ -308,7 +321,7 @@ class YNDb
 			$this->locked_tables_locks_count[$name]++;
 		}
 		
-		if($excl) flock_cached($name, 'r+b', LOCK_EX);
+		if($excl) flock_cached($this->dir.'/'.$name.'.lock', 'r+b', LOCK_EX);
 		
 		return true;
 	}
@@ -348,40 +361,56 @@ class YNDb
 	
 	protected function read_struct_start($name /* table name */) // sets the shared lock! (use lock_table() to set exclusive lock)
 	{
-		if(!$str_fp = fopen_cached($path = $this->dir.'/'.$name.'.str', 'r+b'/*, true /* lock the file pointer */)) return $this->set_error('File with table structure is corrupt!');
+		$path = $this->dir.'/'.$name.'.str';
+		$lpath = $this->dir.'/'.$name.'.lock';
 		
-		flock_cached($path, 'r+b', LOCK_SH);
+		if(!$str_fp = fopen_cached($path, 'r+b'/*, true /* lock the file pointer */)) throw new Exception('File with table structure is corrupt!');
+		
+		$lock_fp = fopen_cached($lpath, 'r+b');
+		
+		flock_cached($lpath, 'r+b', LOCK_SH);
 		
 		//@flock($str_fp, LOCK_EX);
 		
-		fseek($str_fp, 0, SEEK_END);
-		$sz = ftell($str_fp);
-		rewind($str_fp);
+		fseek($str_fp, 0, SEEK_SET);
 		
-		list($fields, $params, $meta) = unserialize(fread($str_fp, $sz));
+		//rewind($str_fp);
+		
+		$buf = '';
+		while(!feof($str_fp)) $buf .= fread($str_fp, 2048);
+		
+		list($fields, $params, $meta) = unserialize($buf);
 		
 		$aname = $params['AUTO_INCREMENT']['name'];
-		@$acnt  = ++$params['AUTO_INCREMENT']['cnt'];
+		$acnt  = ++$params['AUTO_INCREMENT']['cnt'];
 		
 		return array(
-			'str_fp' => $str_fp,
-			'fields' => $fields, 
-			'params' => $params,
-			'aname'  => $aname,
-			'acnt'   => $acnt,
-			'unique' => $params['UNIQUE'],
-			'index'  => $params['INDEX'],
-			'meta'   => $meta,
+			//'lock_fp' => $lock_fp,
+			'str_fp'  => $str_fp,
+			'fields'  => $fields, 
+			'params'  => $params,
+			'aname'   => $aname,
+			'acnt'    => $acnt,
+			'unique'  => $params['UNIQUE'],
+			'index'   => $params['INDEX'],
+			'meta'    => $meta,
 		);
 	}
 	
 	protected function read_struct_end($res, $name)
 	{
+		$lpath = $this->dir.'/'.$name.'.str';
+		
 		/*$str_fp = $res['str_fp'];
 		@flock($str_fp, LOCK_UN);
 		fclose($str_fp);*/
 		
-		flock_cached($name, 'r+b', LOCK_UN);
+		//global $fopen_cache;
+		
+		//echo '<pre>', !print_r($fopen_cache), '</pre>';
+		
+		flock_cached($lpath, 'r+b', LOCK_UN);
+		//fclose_cached($lpath, 'r+b');
 		
 		//fflush($str_fp);
 		
@@ -400,7 +429,7 @@ class YNDb
 		
 		$data = array_change_key_case($data, CASE_LOWER);
 		
-		do
+		try
 		{
 			extract($str_res);
 			
@@ -408,17 +437,15 @@ class YNDb
 			fseek($fp, 0, SEEK_END);
 			$row_start = ftell($fp);
 			
+			
+			
 			/* optimization for PRIMARY INDEX field (id) */
 			
 			$this->I->meta = $meta;
 			
 			if($aname)
 			{				
-				if(!$pfp = fopen_cached($this->dir.'/'.$name.'.pri', 'r+b'))
-				{
-					$err = $this->set_error('Primary index file is corrupt.');
-					break;
-				}
+				if(!$pfp = fopen_cached($this->dir.'/'.$name.'.pri', 'r+b')) throw new Exception('Primary index file is corrupt.');
 				
 				if(isset($data[$aname]) && $data[$aname] < $acnt) // allow to insert values that do not duplicate existing ones and have lower that $acnt values
 				{
@@ -427,18 +454,14 @@ class YNDb
 					fseek($pfp, 4*$cnt);
 					list(,$offset) = unpack('l', fread($pfp,4));
 					
-					if($offset < 0)
-					{
-						$acnt = $cnt;
-					}else
-					{
-						$err = $this->set_error('Duplicate primary key value');
-						break;
-					}
+					if($offset < 0) $acnt = $cnt;
+					else            throw new Exception('Duplicate primary key value');
 				}
 				
 				$ret = $this->I->insert_primary($pfp,$acnt,$row_start);
 			}
+			
+			
 			
 			/* optimization for UNIQUE key field */
 			$st = microtime(true);
@@ -446,13 +469,12 @@ class YNDb
 			{
 				if(!$ufp = fopen_cached($this->dir.'/'.$name.'.btr', 'r+b'))
 				{
-					$err = $this->set_error('Unique index file is corrupt.');
-					break;
+					throw new Exception('Unique index file is corrupt.');
 				}
 				
 				// we remove the check for errors as we do not use rfio anymore and cannot revert changes
 				
-				foreach($unique as $unique_name) $this->I->insert_unique($ufp,$data,$unique_name,$row_start);
+				foreach($unique as $unique_name) $this->I->insert_unique($ufp,$data,$fields,$unique_name,$row_start);
 				
 				/*if(!$ret)
 				{
@@ -469,11 +491,10 @@ class YNDb
 			{
 				if( (!$ifpi = fopen_cached($this->dir.'/'.$name.'.idx', 'r+b')) || (!$ifp = fopen_cached($this->dir.'/'.$name.'.btr', 'r+b')))
 				{
-					$err = $this->set_error('Index file is corrupt.');
-					break;
+					throw new Exception('Index file is corrupt.');
 				}
 				
-				foreach($index as $index_name) $this->I->insert_index($ifp,$ifpi,$data,$index_name,$row_start);
+				foreach($index as $index_name) $this->I->insert_index($ifp,$ifpi,$data,$fields,$index_name,$row_start);
 				
 				/*
 				if(!$ret)
@@ -523,11 +544,13 @@ class YNDb
 			
 			if(!fputs($fp, $ins, strlen($ins)))
 			{
-				$err = true;
-				break;
+				throw new Exception('Cannot write data file.');
 			}
 		
-		}while(false);
+		}catch(Exception $e)
+		{
+			throw $e;
+		}
 		
 		$meta = $this->I->meta;
 		
@@ -537,8 +560,23 @@ class YNDb
 		{
 			/* write new AUTO_INCREMENT value */
 			rewind($str_fp);
-			ftruncate($str_fp, 0);
-			fputs($str_fp, serialize(array($fields, $params, $meta)));
+			
+			/// no ftruncate as we only increase counter :)
+			// ftruncate($str_fp, 0);
+			
+			//rewind($str_fp);
+			
+			$data = serialize(array($fields, $params, $meta));
+			
+			//echo 'written '.strlen($data).' and <pre>',!print_r(unserialize($data)),'</pre>';
+			
+			//echo 'the file: '.$str_fp.'<br/>';
+			
+			fwrite($str_fp, $data, strlen($data));
+			
+			if(!fflush($str_fp)) throw new Exception('Fucking windows!');
+			
+			// stupid, fucking windows!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 			
 			$this->locked_tables_list[$name]['acnt'] = $acnt;
 			$this->locked_tables_list[$name]['meta'] = $meta;
@@ -711,122 +749,99 @@ class YNDb
 		if($offsets) $fields['__offset']='OFFSET';
 		
 		
-		if(sizeof($cond) != 1)
+		try
 		{
-			$err = 'Only strictly 1 condition is supported';
-		}else if(!in_array($cond[0][0] = strtolower($cond[0][0]), $valid = array_keys($fields)))
-		{
-			$err = 'Unknown field '.$cond[0][0].'. Valid fields are: '.implode(', ',$valid);
-		}else if(!in_array($cond[0][1] = strtoupper($cond[0][1]), $valid = array('<','>','=', 'IN')))
-		{
-			$err = 'Unsupported operator '.$cond[0][1].'. Supported operators: '.implode(', ',$valid);
-		}else if($col && sizeof($inv = array_udiff($col, $valid = array_keys($fields), 'strcmp')))
-		{
-			$err = 'Unknown column(s): '.implode(', ',$inv).'. Valid are: '.implode(', ',$valid);
-		}
-		
-		if(isset($err))
-		{
-			$this->unlock_table($name);
+			if(sizeof($cond) != 1) throw new Exception('Only strictly 1 condition is supported');
 			
-			return $this->set_error($err);
-		}
-		
-		$fp = fopen_cached($this->dir.'/'.$name.'.dat', 'r+b');
-		
-		fseek($fp, 0, SEEK_END);
-		$end = ftell($fp) - 1;
-		rewind($fp);
-		
-		$res = array();
-		
-		/* try to run optimization */
-		
-		$c = $cond[0];
-		
-		/* optimization state */
-		$opt = 'Looking through the whole table';
-		
-		if(/*false && */$c[0] == $aname /* <=> PRIMARY INDEX */ && in_array($c[1], array('=','IN')))
-		{
-			$opt = 'Using PRIMARY';
-			
-			$pfp = fopen_cached($this->dir.'/'.$name.'.pri', 'r+b');
-			
-			fseek($pfp, SEEK_END);
-			$pend = ftell($pfp);
-			
-			if($c[1] == '=')
+			if(!in_array($cond[0][0] = strtolower($cond[0][0]), $valid = array_keys($fields)))
 			{
-				$c[1] = 'IN';
-				$c[2] = array($c[2]);
+				throw new Exception('Unknown field '.$cond[0][0].'. Valid fields are: '.implode(', ',$valid));
 			}
 			
-			if($c[1] == 'IN')
-			{	
-				$ids = $c[2];
-				
-				sort($ids, SORT_NUMERIC);
-				
-				$cond = array(array($aname,'>',0));
-				
-				foreach($ids as $v)
-				{
-					// cannot have values that exceed auto_increment value
-					// 'acnt' contains the already-incremented counter, so
-					// we use ">=", as value 'acnt' does not also exist yet
-					if($v >= $acnt) continue;
-					if($v <= 0) continue; // only positive values are allowed
-					
-					fseek($pfp, $v*4);
-					@$i = fread($pfp, 4);
-					
-					
-					if(strlen($i)!=4) continue; /* usually just means that this ID does not exist */
-					
-					$i = unpack('l', $i);
-					
-					if( @fseek($fp, $i[1]) < 0) continue; /* see previous comment. E.g. negative $i[1] will cause this result */
-					
-					$t = $this->read_row($fields, $fp);
-					
-					//print_r($i);
-					
-					if(call_user_func($filt, $t, $limit, $cond)) $res[] = $t;
-				}
-			}else if($c[1] == '>' && $c[2]>=0)
+			if(!in_array($cond[0][1] = strtoupper($cond[0][1]), $valid = array('<','>','=', 'IN')))
 			{
-				$cnt = 0;
+				throw new Exception('Unsupported operator '.$cond[0][1].'. Supported operators: '.implode(', ',$valid));
+			}
+			
+			if($col && sizeof($inv = array_udiff($col, $valid = array_keys($fields), 'strcmp')))
+			{
+				throw new Exception('Unknown column(s): '.implode(', ',$inv).'. Valid are: '.implode(', ',$valid));
+			}
+		
+			
+			if(!$fp = fopen_cached($this->dir.'/'.$name.'.dat', 'r+b'))
+			{
+				throw new Exception('Data file corrupt');
+			}
+			
+			fseek($fp, 0, SEEK_END);
+			$end = ftell($fp) - 1;
+			rewind($fp);
+			
+			$res = array();
+			
+			/* try to run optimization */
+			
+			$c = $cond[0];
+			
+			/* optimization state */
+			$opt = 'Looking through the whole table';
+			
+			if(/*false && */$c[0] == $aname /* <=> PRIMARY INDEX */ && in_array($c[1], array('=','IN')))
+			{
+				$opt = 'Using PRIMARY';
 				
-				if($order[1] == SORT_ASC)
+				$pfp = fopen_cached($this->dir.'/'.$name.'.pri', 'r+b');
+				
+				fseek($pfp, SEEK_END);
+				$pend = ftell($pfp);
+				
+				if($c[1] == '=')
 				{
-					/* the entry with id=0 does not exist! */
-					fseek($pfp, 4*($c[2]+1+$limit[0]));
+					$c[1] = 'IN';
+					$c[2] = array($c[2]);
+				}
+				
+				if($c[1] == 'IN')
+				{	
+					$ids = $c[2];
 					
-					while(ftell($pfp) < $pend && $cnt < $limit[1])
+					sort($ids, SORT_NUMERIC);
+					
+					$cond = array(array($aname,'>',0));
+					
+					foreach($ids as $v)
 					{
+						// cannot have values that exceed auto_increment value
+						// 'acnt' contains the already-incremented counter, so
+						// we use ">=", as value 'acnt' does not also exist yet
+						if($v >= $acnt) continue;
+						if($v <= 0) continue; // only positive values are allowed
+						
+						fseek($pfp, $v*4);
 						@$i = fread($pfp, 4);
-						if(strlen($i)!=4) break;
+						
+						
+						if(strlen($i)!=4) continue; /* usually just means that this ID does not exist */
 						
 						$i = unpack('l', $i);
-						//array_display($i);
 						
-						if( @fseek($fp, $i[1]) < 0) continue; /* negative $i[1] means that this index does not exist anymore */
+						if( @fseek($fp, $i[1]) < 0) continue; /* see previous comment. E.g. negative $i[1] will cause this result */
 						
 						$t = $this->read_row($fields, $fp);
 						
-						if($t[$c[0]] <= $c[2] ) continue;
+						//print_r($i);
 						
-						$cnt++;
-						$res[] = $t;
+						if(call_user_func($filt, $t, $limit, $cond)) $res[] = $t;
 					}
-					
-					//array_display($res);
-				}else if($order[1] == SORT_DESC)
+				}else if($c[1] == '>' && $c[2]>=0)
 				{
-					if(@fseek($pfp, $pend - ($limit[0])*4) == 0 /* 0 means success for fseek() */)
+					$cnt = 0;
+					
+					if($order[1] == SORT_ASC)
 					{
-						@fseek($pfp, $pend - ($limit[1] + $limit[0])*4);
+						/* the entry with id=0 does not exist! */
+						fseek($pfp, 4*($c[2]+1+$limit[0]));
 						
 						while(ftell($pfp) < $pend && $cnt < $limit[1])
 						{
@@ -834,86 +849,122 @@ class YNDb
 							if(strlen($i)!=4) break;
 							
 							$i = unpack('l', $i);
+							//array_display($i);
+							
 							if( @fseek($fp, $i[1]) < 0) continue; /* negative $i[1] means that this index does not exist anymore */
 							
 							$t = $this->read_row($fields, $fp);
 							
-							if($t[$c[0]] <= $c[2]) continue;
+							if($t[$c[0]] <= $c[2] ) continue;
 							
-							$res[] = $t;
 							$cnt++;
+							$res[] = $t;
 						}
 						
-						$res = array_reverse($res);
+						//array_display($res);
+					}else if($order[1] == SORT_DESC)
+					{
+						if(@fseek($pfp, $pend - ($limit[0])*4) == 0 /* 0 means success for fseek() */)
+						{
+							@fseek($pfp, $pend - ($limit[1] + $limit[0])*4);
+							
+							while(ftell($pfp) < $pend && $cnt < $limit[1])
+							{
+								@$i = fread($pfp, 4);
+								if(strlen($i)!=4) break;
+								
+								$i = unpack('l', $i);
+								if( @fseek($fp, $i[1]) < 0) continue; /* negative $i[1] means that this index does not exist anymore */
+								
+								$t = $this->read_row($fields, $fp);
+								
+								if($t[$c[0]] <= $c[2]) continue;
+								
+								$res[] = $t;
+								$cnt++;
+							}
+							
+							$res = array_reverse($res);
+						}
+					}
+					
+					$cond = array(array($aname, '>', 0));
+					$limit = array(0, $limit[1]);
+				}
+				
+				//fclose($pfp);
+			}else if(/*$unique == $c[0]*/ in_array($c[0],$unique) && $c[1] == '=')
+			{
+				$opt = 'Using UNIQUE';
+				
+				$ufp = fopen_cached($this->dir.'/'.$name.'.btr', 'r+b');
+				
+				$class = $this->I->uni_type_to_classname($fields[$c[0]]);
+				
+				$tmp = $this->I->$class->fsearch($ufp, $meta[$c[0]], $c[2]);
+				
+				if($tmp !== false)
+				{
+					list($value, $offset) = $tmp;
+					fseek($fp, $offset, SEEK_SET);
+					
+					$res[] = $this->read_row($fields, $fp);
+				}
+				
+				//fclose($ufp);
+			}else if(/*$index == $c[0]*/ in_array($c[0],$index) && $c[1] == '=')
+			{
+				//echo $index.'<br>';
+				//array_display($c);
+				
+				$opt = 'Using INDEX';
+				
+				//echo $opt;
+				
+				$ifpi = fopen_cached($this->dir.'/'.$name.'.idx', 'r+b');
+				$ifp  = fopen_cached($this->dir.'/'.$name.'.btr', 'r+b');
+				
+				$class = $this->I->idx_type_to_classname($fields[$c[0]]);
+				
+				$tmp = $this->I->$class->search($ifp, $ifpi, $meta[$c[0]], $c[2]);
+				
+				if($tmp !== false)
+				{
+					foreach($tmp as $offset)
+					{
+						fseek($fp, $offset, SEEK_SET);
+						$res[] = $this->read_row($fields, $fp);
 					}
 				}
 				
-				$cond = array(array($aname, '>', 0));
-				$limit = array(0, $limit[1]);
-			}
-			
-			//fclose($pfp);
-		}else if(/*$unique == $c[0]*/ in_array($c[0],$unique) && $c[1] == '=')
-		{
-			$opt = 'Using UNIQUE';
-			
-			$ufp = fopen_cached($this->dir.'/'.$name.'.btr', 'r+b');
-			
-			$tmp = $this->I->BTR->fsearch($ufp, $meta[$unique[array_search($c[0],$unique)]], $c[2]);
-			
-			if($tmp !== false)
+				//fclose($ifp);
+				//fclose($ifpi);
+			}else
 			{
-				list($value, $offset) = $tmp;
-				fseek($fp, $offset, SEEK_SET);
+				//echo 'Whole table lookup ('.$name.')<br>';
 				
-				$res[] = $this->read_row($fields, $fp);
-			}
-			
-			//fclose($ufp);
-		}else if(/*$index == $c[0]*/ in_array($c[0],$index) && $c[1] == '=')
-		{
-			//echo $index.'<br>';
-			//array_display($c);
-			
-			$opt = 'Using INDEX';
-			
-			//echo $opt;
-			
-			$ifpi = fopen_cached($this->dir.'/'.$name.'.idx', 'r+b');
-			$ifp  = fopen_cached($this->dir.'/'.$name.'.btr', 'r+b');
-			
-			$tmp = $this->I->BTRI->search($ifp, $ifpi, $meta[$index[array_search($c[0],$index)]], $c[2]);
-			
-			if($tmp !== false)
-			{
-				foreach($tmp as $offset)
+				
+				/* the worst case: look through all the table */
+				
+				while(ftell($fp)<$end)
 				{
-					fseek($fp, $offset, SEEK_SET);
-					$res[] = $this->read_row($fields, $fp);
+					$t = $this->read_row($fields, $fp);
+					
+					$fr = call_user_func($filt, $t, $limit, $cond);
+					
+					if($fr) $res[] = $t;
+					else if($fr === self::FULL_STOP) break;
 				}
 			}
 			
-			//fclose($ifp);
-			//fclose($ifpi);
-		}else
-		{
-			//echo 'Whole table lookup ('.$name.')<br>';
-			
-			
-			/* the worst case: look through all the table */
-			
-			while(ftell($fp)<$end)
-			{
-				$t = $this->read_row($fields, $fp);
-				
-				$fr = call_user_func($filt, $t, $limit, $cond);
-				
-				if($fr) $res[] = $t;
-				else if($fr === self::FULL_STOP) break;
-			}
-		}
+			//fclose($fp);
 		
-		//fclose($fp);
+		}catch(Exception $e)
+		{
+			$this->unlock_table($name);
+			
+			throw $e;
+		}
 		
 		$this->unlock_table($name);
 		
@@ -984,7 +1035,7 @@ class YNDb
 		
 		$this->I->meta = $meta;
 		
-		do
+		try
 		{
 			$res = $this->select( $name, $crit );
 			
@@ -997,41 +1048,38 @@ class YNDb
 			
 			if($pfp = fopen_cached($this->dir.'/'.$name.'.pri', 'r+b'))
 			{
-				$succ = true;
-				foreach($res as $data) $succ = $succ && $this->I->delete_primary($pfp, $data, $aname);
-				$succ1 = true;//fclose($pfp);
-				$succ = $succ && $succ1;
+				//$succ = true;
+				foreach($res as $data) $this->I->delete_primary($pfp, $data, $aname);
+				//$succ1 = true;//fclose($pfp);
+				//$succ = $succ && $succ1;
 				
-				if(!$succ) break; // either problem with fclose or with delete_primary, delete_primary should already have set an error
+				//if(!$succ) break; // either problem with fclose or with delete_primary, delete_primary should already have set an error
 			}else
 			{
-				$this->set_error('Primary index file corrupt.');
-				break;
+				throw new Exception('Primary index file corrupt.');
 			}
 			
 			if(sizeof($index) && ($ifpi = fopen_cached($this->dir.'/'.$name.'.idx', 'r+b')) && ($ifp  = fopen_cached($this->dir.'/'.$name.'.btr', 'r+b')))
 			{
 				foreach($index as $index_name)
 				{
-					foreach($res as $data) $this->I->delete_index($ifp, $ifpi, $data, $index_name, $data['__offset']);
+					foreach($res as $data) $this->I->delete_index($ifp, $ifpi, $data, $fields, $index_name, $data['__offset']);
 				}
 				
 			}else if(sizeof($index))
 			{
-				$this->set_error('Index file corrupt.');
-				break;
+				throw new Exception('Index file corrupt.');
 			}
 			
 			if(sizeof($unique) && ($ufp = fopen_cached($this->dir.'/'.$name.'.btr', 'r+b')))
 			{
 				foreach($unique as $unique_name)
 				{
-					foreach($res as $data) $this->I->delete_unique($ufp, $data, $unique_name);
+					foreach($res as $data) $this->I->delete_unique($ufp, $data, $fields, $unique_name);
 				}
 			}else if(sizeof($unique))
 			{
-				$this->set_error('Unique index file corrupt.');
-				break;
+				throw new Exception('Unique index file corrupt.');
 			}
 			
 			if($fp = fopen_cached($this->dir.'/'.$name.'.dat', 'r+b'))
@@ -1053,13 +1101,16 @@ class YNDb
 				}
 			}else
 			{
-				$this->set_error('Data table corrupt');
-				break;
+				throw new Exception('Data table corrupt');
 			}
 			
 			$success = true;
 			
-		}while(false);
+		}catch(Exception $e)
+		{
+			$this->unlock_table($name);
+			throw $e;
+		}
 		
 		if($this->I->meta !== $meta)
 		{
@@ -1096,7 +1147,7 @@ class YNDb
 		
 		$this->I->meta = $meta;
 		
-		do
+		try
 		{
 			$res = $this->select( $name, $crit, $str_res );
 			
@@ -1125,8 +1176,7 @@ class YNDb
 							fputs($pfp, pack('l', $newoff));
 						}else
 						{
-							$succ = $this->set_error('Duplicate primary key value');
-							break;
+							throw new Exception('Duplicate primary key value');
 						}
 					}
 				}
@@ -1134,8 +1184,7 @@ class YNDb
 				if(!$succ) break; // either problem with delete_primary, delete_primary should already have set an error
 			}else if(isset($new_data[$aname]))
 			{
-				$this->set_error('Primary index file corrupt.');
-				break;
+				throw new Exception('Primary index file corrupt.');
 			}
 			
 			//echo 'SUCC '.__LINE__.'<br>';
@@ -1152,18 +1201,17 @@ class YNDb
 					{
 						if($data[$index_name] == $new_data[$index_name]) continue; // no need to update it :))
 
-						$this->I->delete_index($ifp, $ifpi, $data, $index_name, $data['__offset']);
-						$this->I->insert_index($ifp, $ifpi, $new_data, $index_name, $data['__offset']);
+						$this->I->delete_index($ifp, $ifpi, $data, $fields, $index_name, $data['__offset']);
+						$this->I->insert_index($ifp, $ifpi, $new_data, $fields, $index_name, $data['__offset']);
 					}
 				}
 				
 			//	echo 'FAIL '.__LINE__.'<br>';
 			}else if($need_update && (!$ifpi || !$ifp))
 			{
-				$this->set_error('Index file corrupt.');
+				throw new Exception('Index file corrupt.');
 				
 			//	echo 'FAIL '.__LINE__.'<br>';
-				break;
 			}
 			
 			//echo 'SUCC '.__LINE__.'<br>';
@@ -1180,14 +1228,13 @@ class YNDb
 					{
 						if($data[$unique_name] == $new_data[$unique_name]) continue;
 
-						$this->I->delete_unique($ufp, $data, $unique_name);
-						$this->I->insert_unique($ufp, $new_data, $unique_name, $data['__offset']);
+						$this->I->delete_unique($ufp, $data, $fields, $unique_name);
+						$this->I->insert_unique($ufp, $new_data, $fields, $unique_name, $data['__offset']);
 					}
 				}
 			}else if($need_update && !$ufp)
 			{
-				$this->set_error('Unique index file corrupt.');
-				break;
+				throw new Exception('Unique index file corrupt.');
 			}
 			
 			//echo 'SUCC '.__LINE__.'<br>';
@@ -1247,15 +1294,18 @@ class YNDb
 				}
 			}else
 			{
-				$this->set_error('Data table corrupt');
-				break;
+				throw new Exception('Data table corrupt');
 			}
 			
 			$success = true;
 			
 			//echo 'SUCCESS';
 			
-		}while(false);
+		}catch(Exception $e)
+		{
+			$this->unlock_table($name);
+			throw $e;
+		}
 		
 		if($this->I->meta !== $meta)
 		{
