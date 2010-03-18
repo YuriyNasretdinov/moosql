@@ -41,6 +41,7 @@ deny from all
 To create table, call `$MOO->create(string $name, array $fields, array $params)` method, with the following format for parameres:
 
 *$name:*
+
 Table name. Table name is directly translated to file names, so it can be case-sensitive if the server filesystem is.
 
 *$fields:*
@@ -52,8 +53,10 @@ array(
 );
 }}}
 
-`Keyname` is a name of your table column
-`Type` is one of the following types:
+|| keyname,,i,, || name of your table column ||
+|| type,,i,,|| one of the types below||
+
+=== Column types ===
 
 || BYTE || 8-bit  integer ( from -128           to 127           ) ||
 || INT  || 32-bit integer ( from -2 147 483 648 to 2 147 483 647 ) ||
