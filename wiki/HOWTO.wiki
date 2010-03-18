@@ -134,4 +134,4 @@ Operators `=`, `>`, `<` and `IN` are supported. In case you use `IN`, `VALUE` mu
 
 === Return value: ===
 
-Returns `array( array('column_name1' => 'value1', ...), ... )` &ndash; a list of associative arrays with `column_name => value` pairs.
+Returns `array( array('column_name1' => 'value1', ...), ... )` -- a list of associative arrays with `column_name => value` pairs.
