@@ -12,7 +12,7 @@ The MooSQL is a project which has the intention to build an RDBMS in pure PHP wi
 
 MooSQL now only supports the core API, primarily YNDb.
 
-It supports `create()` / `select()` / `insert()`, `delete()` and `update()` methods which allow you to create new tables, perform simple select queries from tables, insert data into the table, delete rows and update contents of existing rows with only limitation that you cannot increase length of text fields.
+It supports `create()` / `select()` / `insert()` / `delete()` and `update()` methods which allow you to create new tables, perform simple select queries from tables, insert data into the table, delete rows and update contents of existing rows with only limitation that you cannot increase length of text fields.
 
 The YNDb will throw an Exception() in case of any error, so no need to check return values for insert/delete/update methods.
 
