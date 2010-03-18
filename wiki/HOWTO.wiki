@@ -79,3 +79,25 @@ array(
 || autofield || name of AUTO_INCREMENT field. Must be INT. Note, that AUTO_INCREMENT field is considered as PRIMARY INDEX, and MUST BE SET in every table ||
 || uniquefield,,i,, || name of field with UNIQUE index. Must be BYTE, INT or DOUBLE. Such field has only distinct values. ||
 || indexfield,,i,, || name of field with INDEX. Must be BYTE, INT or DOUBLE. Works like UNIQUE, but coincident values are allowed. ||
+
+== 4. Inserting values into a table ==
+
+To insert a row, call `$MOO->insert(string $name, array $data)` with the following parameters:
+
+*$name:* Table name.
+*$data:*
+
+{{{
+array(
+	['field1' => 'value1',]
+	...,
+	['fieldN' => 'valueN']
+);
+}}}
+
+|| field,,i,, || Column name ||
+|| value,,i,, || Value for corresponding column ||
+
+Value for AUTO_INCREMENT column can be supplied in case you want to insert a row with ID which has been previously deleted. Arbitrary values for AUTO_INCREMENT column are not supported, use UNIQUE index for that purpose.
+
+You can skip fields so that they get the default value (0 for integer/double types, empty string for text types). NULL values are not currently supported.
