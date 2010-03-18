@@ -35,3 +35,44 @@ The *_data_directory_* is the directory where MooSQL will store its' data. This 
 {{{
 deny from all
 }}}
+
+== 3. Creating tables ===
+
+To create table, call `$MOO->create(string $name, array $fields, array $params)` method, with the following format for parameres:
+
+*$name:*
+Table name. Table name is directly translated to file names, so it can be case-sensitive if the server filesystem is.
+
+*$fields:*
+{{{
+array(
+	'keyname1' => 'type1',
+	...,
+	'keynameN' => 'typeN',
+);
+}}}
+
+`Keyname` is a name of your table column
+`Type` is one of the following types:
+
+|| BYTE || 8-bit  integer ( from -128           to 127           ) ||
+|| INT  || 32-bit integer ( from -2 147 483 648 to 2 147 483 647 ) ||
+|| TINYTEXT || string with length less than 256 characters ||
+|| TEXT || string with length less than 65 536 characters ||
+|| LONGTEXT || string with length less than YNDb::MAXLEN (default 1 Mb) characters ||
+|| DOUBLE || a number with floating point ||
+
+*$params:*
+{{{
+array(
+	'AUTO_INCREMENT' => 'autofield',
+	['UNIQUE'        => array('uniquefield1', ..., 'uniquefieldN'), ]
+	['INDEX'         => array('indexfield1',  ..., 'indexfieldN'), ]
+);
+}}}
+
+`autofield` -- name of AUTO_INCREMENT field. Must be INT. Note, that AUTO_INCREMENT field is considered as PRIMARY INDEX, and MUST BE SET in every table
+
+`uniquefield` -- name of field with UNIQUE index. Must be BYTE, INT or DOUBLE. Such field has only distinct values.
+
+`indexfield` -- name of field with INDEX. Must be BYTE, INT or DOUBLE. Works like UNIQUE, but coincident values are allowed.
