@@ -89,11 +89,11 @@ To insert a row, call `$MOO->insert(string $name, array $data)` with the followi
 *$data:*
 
 {{{
-array(
-	['field1' => 'value1',]
+array([
+	'field1' => 'value1',
 	...,
-	['fieldN' => 'valueN']
-);
+	'fieldN' => 'valueN',
+]);
 }}}
 
 || field,,i,, || Column name ||
