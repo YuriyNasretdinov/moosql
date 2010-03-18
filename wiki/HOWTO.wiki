@@ -10,7 +10,7 @@ The MooSQL is a project which has the intention to build an RDBMS in pure PHP wi
 
 = Details =
 
-== 1. What API is available at the moment? ==
+== What API is available at the moment? ==
 
 MooSQL now only supports the core API, primarily YNDb.
 
@@ -20,7 +20,7 @@ The YNDb will throw an Exception() in case of any error, so no need to check ret
 
 YNDb supports indexed and auto-incremented fields with ability to have UNIQUE indexes as well. Text fields cannot be indexed at the moment.
 
-== 2. How do I begin to work with MooSQL? ==
+== How do I begin to work with MooSQL? ==
 
 First, do `svn checkout` of the latest version from `/trunk` to some directory, e.g. `moosql`.
 
@@ -40,7 +40,7 @@ The *_data_directory_* is the directory where MooSQL will store its' data. This 
 deny from all
 }}}
 
-== 3. Creating tables ===
+== Creating tables ===
 
 To create table, call `$MOO->create(string $name, array $fields, array $params)` method, with the following format for parameres:
 
@@ -84,7 +84,7 @@ array(
 || uniquefield,,i,, || name of field with UNIQUE index. Must be BYTE, INT or DOUBLE. Such field has only distinct values. ||
 || indexfield,,i,, || name of field with INDEX. Must be BYTE, INT or DOUBLE. Works like UNIQUE, but coincident values are allowed. ||
 
-== 4. Inserting values into a table ==
+== Inserting values into a table ==
 
 To insert a row, call `$MOO->insert(string $name, array $data)` with the following parameters:
 
@@ -107,7 +107,7 @@ Value for AUTO_INCREMENT column can be supplied in case you want to insert a row
 
 You can skip fields so that they get the default value (0 for integer/double types, empty string for text types). NULL values are not currently supported.
 
-== 5. Performing select requests ==
+== Performing select requests ==
 
 To select some data from the table use `$MOO->select(string $name[, array $crit = array()]);` method.
 
@@ -138,13 +138,13 @@ Operators `=`, `>`, `<` and `IN` are supported. In case you use `IN`, `VALUE` mu
 
 Returns `array( array('column_name1' => 'value1', ...), ... )` -- a list of associative arrays with `column_name => value` pairs.
 
-== 5. Deleting rows ==
+== Deleting rows ==
 
 To delete rows from the table use `$MOO->delete(string $name[, array $crit = array()]);` method.
 
 The parameters and return values are absolutely identical to select() with the exception that the returned rows are deleted.
 
-== 5. Updating rows ==
+== Updating rows ==
 
 To update rows in the table use `$MOO->update(string $name, array $crit, array $new_data);` method with the following parameters:
 
