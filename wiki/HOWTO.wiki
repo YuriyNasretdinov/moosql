@@ -123,11 +123,11 @@ Array with select criteria. All keys are _optional_.
 || limit || LIMIT analogue as in MySQL. Can be set as string `'NUM1[,NUM2]'` or `array(NUM1[, NUM2])`. <br><br>Defaults to 1000. ||
 || order || Sort order. Should be supplied in form of `array( 'COLUMN_NAME', SORT_ASC _or_ SORT_DESC ) )`.<br><br>Defaults to `array('AUTO_INC_COLUMN', SORT_ASC)` ||
 || col || Comma-separated list of return fields (as in `SELECT field1, field2, ... FROM`). Use `'*'` to get all fields.<br><br>Defaults to `'*'`. ||
-|| explain || In case set to `TRUE`, returns explanation of how the select query is going to be performed.<br><br>Defaults to FALSE ||
+|| explain || In case set to `TRUE`, returns explanation of how the select query is going to be performed.<br><br>Defaults to `FALSE` ||
 
 ==== Supported tokens: ====
 	`array( COLUMN_NAME, OPERATOR, VALUE )` -- usual condition
 
 ==== Supported operators: ====
 
-Operators `=`, `>`, `<` and `IN` are supported. In case use use `IN`, VALUE must be presented in a form of `array(value1, value2, ...)`
+Operators `=`, `>`, `<` and `IN` are supported. In case you use `IN`, `VALUE` must be presented in a form of `array(value1, value2, ...)`
