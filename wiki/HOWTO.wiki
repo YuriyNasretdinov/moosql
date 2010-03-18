@@ -117,7 +117,7 @@ To select some data from the table use `$MOO->select(string $name[, array $crit 
 
 Array with select criteria. All keys are _optional_.
 
-==== $crit keys: ===
+==== $crit keys: ====
 
 || cond || Condition in form of `array( TOKEN )`. Condition also can be set in form of a string: `'COLUMN_NAME OPERATOR VALUE'`.<br><br>Defaults to `'AUTO_INC_COLUMN > 0'`. ||
 || limit || LIMIT analogue as in MySQL. Can be set as string `'NUM1[,NUM2]'` or `array(NUM1[, NUM2])`. <br><br>Defaults to 1000. ||
@@ -131,3 +131,7 @@ Array with select criteria. All keys are _optional_.
 ==== Supported operators: ====
 
 Operators `=`, `>`, `<` and `IN` are supported. In case you use `IN`, `VALUE` must be presented in a form of `array(value1, value2, ...)`
+
+=== Return value: ===
+
+Returns `array( array('column_name1' => 'value1', ...), ... )` &ndash; a list of associative arrays with `column_name => value` pairs.
