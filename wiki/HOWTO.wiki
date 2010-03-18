@@ -56,7 +56,9 @@ array(
 || keyname,,i,, || name of your table column ||
 || type,,i,,|| one of the types below||
 
-=== Column types ===
+
+=== Table 1. Column types ===
+
 
 || BYTE || 8-bit  integer ( from -128           to 127           ) ||
 || INT  || 32-bit integer ( from -2 147 483 648 to 2 147 483 647 ) ||
