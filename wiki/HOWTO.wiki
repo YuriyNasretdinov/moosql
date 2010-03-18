@@ -74,8 +74,8 @@ array(
 );
 }}}
 
-`autofield` -- name of AUTO_INCREMENT field. Must be INT. Note, that AUTO_INCREMENT field is considered as PRIMARY INDEX, and MUST BE SET in every table
+|| autofield || name of AUTO_INCREMENT field. Must be INT. Note, that AUTO_INCREMENT field is considered as PRIMARY INDEX, and MUST BE SET in every table ||
 
-`uniquefield` -- name of field with UNIQUE index. Must be BYTE, INT or DOUBLE. Such field has only distinct values.
+|| uniquefield,,i,, || name of field with UNIQUE index. Must be BYTE, INT or DOUBLE. Such field has only distinct values. ||
 
-`indexfield` -- name of field with INDEX. Must be BYTE, INT or DOUBLE. Works like UNIQUE, but coincident values are allowed.
+|| indexfield,,i,, || name of field with INDEX. Must be BYTE, INT or DOUBLE. Works like UNIQUE, but coincident values are allowed. ||
