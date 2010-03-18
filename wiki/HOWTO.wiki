@@ -1,6 +1,8 @@
 #summary The MooSQL HOWTO article describing the current available API
 #labels Featured
 
+<wiki:toc max_depth="3" />
+
 = Introduction =
 
 The MooSQL is a project which has the intention to build an RDBMS in pure PHP with support of MySQL syntax for queries and which would have relatively high performance on big data sets.
