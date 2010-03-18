@@ -85,6 +85,7 @@ array(
 To insert a row, call `$MOO->insert(string $name, array $data)` with the following parameters:
 
 *$name:* Table name.
+
 *$data:*
 
 {{{
