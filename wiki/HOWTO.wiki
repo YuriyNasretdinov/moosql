@@ -119,9 +119,7 @@ Array with select criteria. All keys are _optional_.
 
 ==== $crit keys: ===
 
-|| cond || Condition in form of `array( TOKEN )`. Condition also can be set in form of a string: `'COLUMN_NAME OPERATOR VALUE'`.
-
-Defaults to `'AUTO_INC_COLUMN > 0'`. ||
+|| cond || Condition in form of `array( TOKEN )`. Condition also can be set in form of a string: `'COLUMN_NAME OPERATOR VALUE'`.<br><br>Defaults to `'AUTO_INC_COLUMN > 0'`. ||
 || limit || LIMIT analogue as in MySQL. Can be set as string `'NUM1[,NUM2]'` or `array(NUM1[, NUM2])`. <br><br>Defaults to 1000. ||
 || order || Sort order. Should be supplied in form of `array( 'COLUMN_NAME', SORT_ASC _or_ SORT_DESC ) )`.<br><br>Defaults to `array('AUTO_INC_COLUMN', SORT_ASC)` ||
 || col || Comma-separated list of return fields (as in `SELECT field1, field2, ... FROM`). Use `'*'` to get all fields.<br><br>Defaults to `'*'`. ||
