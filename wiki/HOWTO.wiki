@@ -147,7 +147,9 @@ The parameters and return values are absolutely identical to select() with the e
 To update rows in the table use `$MOO->update(string $name, array $crit, array $new_data);` method with the following parameters:
 
 *$name:* Table name
+
 *$crit:* Criteria for rows to update in the same format as in `select()` method.
+
 *$new_data:* Associative array of values to replace old ones in format `column_name => new_value`
 
 === Return values ===
