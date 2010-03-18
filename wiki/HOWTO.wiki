@@ -12,7 +12,7 @@ The MooSQL is a project which has the intention to build an RDBMS in pure PHP wi
 
 MooSQL now only supports the core API, primarily YNDb.
 
-It supports create() / select() / insert() and update() methods which allow you to create new tables, perform simple select queries from tables, insert data into the table and update contents of existing rows with only limitation that you cannot increase length of text fields.
+It supports `create()` / `select()` / `insert()` and `update()` methods which allow you to create new tables, perform simple select queries from tables, insert data into the table and update contents of existing rows with only limitation that you cannot increase length of text fields.
 
 YNDb supports indexed and auto-incremented fields with ability to have UNIQUE indexes as well. Text fields cannot be indexed at the moment.
 
