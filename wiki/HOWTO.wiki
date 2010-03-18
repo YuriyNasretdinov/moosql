@@ -135,3 +135,25 @@ Operators `=`, `>`, `<` and `IN` are supported. In case you use `IN`, `VALUE` mu
 === Return value: ===
 
 Returns `array( array('column_name1' => 'value1', ...), ... )` -- a list of associative arrays with `column_name => value` pairs.
+
+== 5. Deleting rows ==
+
+To delete rows from the table use `$MOO->delete(string $name[, array $crit = array()]);` method.
+
+The parameters and return values are absolutely identical to select() with the exception that the returned rows are deleted.
+
+== 5. Updating rows ==
+
+To update rows in the table use `$MOO->update(string $name, array $crit, array $new_data);` method with the following parameters:
+
+*$name:* Table name
+*$crit:* Criteria for rows to update in the same format as in `select()` method.
+*$new_data:* Associative array of values to replace old ones in format `column_name => new_value`
+
+=== Return values ===
+
+The return value is the same as in `select()` method.
+
+=== Notes ===
+
+Text fields cannot be extended in current implementation. New AUTO_INCREMENT column values cannot exceed internal AUTO_INCREMENT counter and can only have values of previously deleted rows.
