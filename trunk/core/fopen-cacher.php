@@ -32,7 +32,7 @@ function fopen_cached($name, $mode, $lock = false) // note, that arguments are n
 	
 	if($lock!==false)// @flock($fp, $lock);
 	{
-		print_r(debug_backtrace());
+		throw new Exception('Lock is no longer supported in fopen_cached(), use flock_cached() instead');
 	}
 	
 	$fopen_cache[$name.':'.$mode] = array('fp'=>$fp, 'mode'=>$mode, 'locked'=>$lock);
@@ -64,19 +64,27 @@ function flock_cached($name, $mode, $operation)
 	{
 		case LOCK_UN:
 			fflush($entry['fp']);
-			if($entry['locked']!==false) flock($entry['fp'], LOCK_UN);
+			if($entry['locked']!==false)
+			{
+				flock($entry['fp'], LOCK_UN);
+				//echo 'unlocked ';
+			}
 			$entry['locked'] = false;
 			return true;
 		case LOCK_SH:
 		case LOCK_EX:
 			if($entry['locked']!==false)
 			{
+				//echo 'relocking ';
+				
 				if($operation == $entry['locked']) return true;
-				flock($entry['fp'], LOCK_UN); // relock the file pointer
-				flock($entry['fp'], $operation);
+				//flock($entry['fp'], LOCK_UN); // not required and even harmful to do
+				flock($entry['fp'], $operation); // relock the file pointer
+				$entry['locked'] = $operation;
 				return true;
 			}
 			flock($entry['fp'], $operation);
+			$entry['locked'] = $operation;
 			return true;
 		default:
 			throw new Exception('This type of lock is not supported');

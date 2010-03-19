@@ -7,7 +7,8 @@ require YNDB_HOME.'/fopen-cacher.php';
 require YNDB_HOME.'/Index.php';
 
 
-// some runtime-defined constants that cannot be put into the class definition (hate this in PHP, but perhaps there is no choice)
+// some runtime-defined constants that cannot be put directly
+// and only into the class definition (hate this in PHP, but perhaps there is no choice)
 define('YNDB_MAXLEN', pow(2,20)); // maximum length of data in bytes (default 1 MB)
 define('YNDB_DBLSZ',strlen(pack('d', M_PI))); // size of DOUBLE (should be 8 bytes, but it is not strictly obligatory)
 
@@ -16,7 +17,7 @@ class YNDb
 	protected $dir = ''; // data directory
 	protected $error = '';
 	protected $ins_id = '';
-	protected $I = null; /* Index instance. Creates public Btree and Btree_idx instances on construction */
+	protected $I = null; /* Index instance. Creates public Btree_gen and Btree_Idx_gen instances on construction */
 	
 	public static $instances = array(  ); // instances count for each directory
 	
@@ -24,10 +25,11 @@ class YNDb
 	const DBLSZ  = YNDB_DBLSZ; // size of DOUBLE
 	
 	const LIMIT_START = 0; // default limit values
-	const LIMIT_LEN   = 30;
+	const LIMIT_LEN   = 1000;
 	
 	// constants for row format:
 	
+	const ROW_NORMAL   = 0;
 	const ROW_DELETED  = 1;
 	const ROW_SPLIT    = 2;
 	const ROW_CONTINUE = 3;
@@ -36,7 +38,8 @@ class YNDb
 	{
 		$uniqid = uniqid();
 		
-		//if(substr($err,0,strlen('Duplicate')) != 'Duplicate') 
+		//if(substr($err,0,strlen('Duplicate')) != 'Duplicate')
+		/*
 		if(!isset($GLOBALS['argc'])) echo '
 			<div><b>'.$err.' (
 					<a href="#" onclick="var bl=document.getElementById(\''.$uniqid.'\'); if(bl.style.display==\'none\') { bl.style.display=\'\'; this.innerHTML=\'hide\'; }else{ bl.style.display=\'none\'; this.innerHTML=\'backtrace\'; }">
@@ -47,6 +50,7 @@ class YNDb
 				)</b></div>';
 		// if $GLOBALS['argc'] is set, then it almost 100% means that script is run from console, so no HTML here
 		else echo "YNDb error: $err\n";
+		*/
 		
 		$this->error = $err;
 		
@@ -234,7 +238,13 @@ class YNDb
 		
 		if(!@$lock_fp=fopen($this->dir.'/'.$name.'.lock', 'x')) throw new Exception('The table already exists -- the lock file is present.');
 		
-		//if(!@$str_fp=fopen($this->dir.'/'.$name.'.str', 'x')) throw new Exception('The table already exists');
+		// yes, someone could try to perform an insert/update/delete method in between the lines above and below,
+		// (I mean HERE :), in this comment block )
+		// but the query will obviously fail because the file describing table structure does not yet exist
+		
+		flock($lock_fp, LOCK_EX);
+		
+		
 		
 		fclose(fopen($this->dir.'/'.$name.'.dat','wb'));
 		fclose(fopen($this->dir.'/'.$name.'.pri', 'wb'));
@@ -286,6 +296,7 @@ class YNDb
 		fclose($str_fp);
 		mkdir($this->dir . '/plans'); // create directory for execution plans
 		
+		// flock($lock_fp, LOCK_UN) // not required
 		fclose($lock_fp);
 		
 		return true;
@@ -301,18 +312,18 @@ class YNDb
 	
 	// repeatable, safe to lock table several times
 	// (though you have to unlock table as many times as you locked it --
-	//  these numbers must be in sync with each other: it is done for not to check,
-	//  if the table is locked every time and perform different actions)
+	//  these numbers must be in sync with each other)
 	
-	// the required structure could be obtained using $this->locked_tables_list[$name] (better keep it read-only)
+	// the required structure could be obtained using $this->locked_tables_list[$name]
+	// (even though it is a public variable you MUST NOT change its contents from outside this class)
 	
 	public function lock_table($name, $excl = false) // lock the table exclusively (required for writes)?
 	{
+		//echo 'lock table '.$name.'<br>';
+		
 		if(!isset($this->locked_tables_list[$name]))
 		{
 			$t = $this->read_struct_start($name);
-			
-			if(!$t) return false;
 			
 			$this->locked_tables_list[$name] = $t;
 			$this->locked_tables_locks_count[$name] = 1;
@@ -326,34 +337,34 @@ class YNDb
 		return true;
 	}
 	
-	// does not return false if table was already unlocked, only if unlock failed
-	
+	// do not read the next comment, it is intended only for internal usage:
 	// if you need to modify table structure, do it yourself, using $this->locked_tables[$name]['str_fp']
 	
 	public function unlock_table($name)
 	{
+		//echo 'unlock table '.$name.'<br>';
+		
 		if(!isset($this->locked_tables_list[$name]))
 		{
-			return true;
+			//return true;
+			
+			throw new Exception('Trying to unlock a table which is already not locked.');
 		}else
 		{
 			$cnt = $this->locked_tables_locks_count[$name];
 			
 			if($cnt > 1) // do not actually unlock the table if the table was locked more, than once, just decrease the locks count for that table
 			{
+				//echo 'decreasing lock counter';
 				$this->locked_tables_locks_count[$name]--;
 				return true;
 			}
 			
 			$res = $this->locked_tables_list[$name];
 			
-			if($this->read_struct_end($res, $name))
-			{
-				unset($this->locked_tables_list[$name]);
-				return true;
-			}
+			// in case unlock failed, it will raise exception that we just pass :)
 			
-			return false;
+			if($this->read_struct_end($res, $name)) unset($this->locked_tables_list[$name]);
 		}
 		
 		
@@ -515,28 +526,28 @@ class YNDb
 				
 				switch($v)
 				{
-					case 'BYTE':
+					case'BYTE':
 						$ins .= pack('c', $d);
 						break;
-					case 'INT':
+					case'INT':
 						$ins .= pack('l', $d);
 						break;
-					case 'TINYTEXT':
+					case'TINYTEXT':
 						if(strlen($d) > 255) $d = substr($d, 0, 255);
 						$ins .= pack('C', strlen($d));
 						$ins .= $d;
 						break;
-					case 'TEXT':
+					case'TEXT':
 						if(strlen($d) > 65535) $d = substr($d, 0, 65535);
 						$ins .= pack('S', strlen($d));
 						$ins .= $d;
 						break;
-					case 'LONGTEXT':
+					case'LONGTEXT':
 						if(strlen($d) > YNDB_MAXLEN) $d = substr($d, 0, YNDB_MAXLEN);
 						$ins .= pack('l', strlen($d));
 						$ins .= $d;
 						break;
-					case 'DOUBLE':
+					case'DOUBLE':
 						$ins .= pack('d', $d);
 						break;
 				}
@@ -573,10 +584,17 @@ class YNDb
 			//echo 'the file: '.$str_fp.'<br/>';
 			
 			fwrite($str_fp, $data, strlen($data));
+			fflush($str_fp);
 			
-			if(!fflush($str_fp)) throw new Exception('Fucking windows!');
+			// sorry for previously blaming Microsoft® Windows®™,
+			// it actually helped me to find an error
+			// in (re)blocking at insert operations
 			
-			// stupid, fucking windows!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+			// flock() sets a MANDATORY lock under Microsoft® Windows®™
+			// and does not let to write a file in case you set a shared lock
+			
+			// unfortunately it just SILENTLY ignores write operations (at least in PHP),
+			// and because of that it was not very easy to debug
 			
 			$this->locked_tables_list[$name]['acnt'] = $acnt;
 			$this->locked_tables_list[$name]['meta'] = $meta;
@@ -604,7 +622,7 @@ class YNDb
 		return !isset($err);
 	}
 	
-	protected function read_row($fields, $fp)
+	protected function read_row($fields, $fp, $rtrim_strings = true)
 	{	
 		/*
 		 * the row format:
@@ -613,55 +631,194 @@ class YNDb
 		 * 
 		 * if row was deleted, then there is the following format:
 		 * 
-		 * NON-NUL BYTE, 32-bit OFFSET to next row (from the end of that 32-bit digit), ...
+		 * NON-NUL BYTE = self::ROW_DELETED, 32-bit OFFSET to next row (from the end of that 32-bit digit), ...
 		 */
 		
+		 /* 
+		  * if row was split, it will have the following format:
+		  * 
+		  * 1 byte  = self::ROW_SPLIT     -- indicator of split row
+		  * 4 bytes = OFFSET_OF_NEXT_PART -- 32-bit offset in data file (from the beginning) where the row continue is situated
+		  * 4 bytes = ROW_LENGTH          -- the length of data, written in the current block
+		  *
+		  * the "continue" information for a row is stored in the following format:
+		  * 
+		  * 1 byte  = self::ROW_CONTINUE
+		  * 4 bytes = OFFSET_OF_NEXT_PART -- in case it is the end of the chain it has value "-1"
+		  * 4 bytes = ROW_LENGTH
+		  * 
+		  */
+		 
 		//echo 'read row at '.ftell($fp).'<br>';
 		
 		list(,$n) = unpack('c', fgetc($fp));
 		
-		while($n!=0)
+		while($n==self::ROW_DELETED || $n==self::ROW_CONTINUE)
 		{
-			list(,$off) = unpack('l', fread($fp, 4));
-			fseek($fp, $off, SEEK_CUR);
+			if($n==self::ROW_DELETED)
+			{
+				list(,$off) = unpack('l', fread($fp, 4));
+				fseek($fp, $off, SEEK_CUR);
+			}else if($n==self::ROW_CONTINUE)
+			{
+				list(,$off,$row_length) = unpack('l2', fread($fp, 8));
+				fseek($fp, $row_length, SEEK_CUR);
+			}
+			
 			list(,$n) = unpack('c', fgetc($fp));
 		}
-		
 		
 		$t = array();
 		
 		if(isset($fields['__offset'])) $t['__offset'] = ftell($fp) - 1;
 		
-		foreach($fields as $k=>$v)
+		//echo $t['__offset'].' =&gt; '.$n.'<br>';
+		
+		switch($n)
 		{
-			switch($v)
-			{
-				case 'BYTE':
-					list(,$i) = unpack('c', fgetc($fp));
-					$t[$k] = $i;
-					break;
-				case 'INT':
-					list(,$i) = unpack('l', fread($fp, 4));
-					$t[$k] = $i;
-					break;
-				case 'TINYTEXT':
-					list(,$len) = unpack('C', fgetc($fp));
-					$t[$k] = rtrim($len ? fread($fp, $len) : '');
-					break;
-				case 'TEXT':
-					list(,$len) = unpack('S', fread($fp, 2));
-					$t[$k] = rtrim($len ? fread($fp, $len) : '');
-					break;
-				case 'LONGTEXT':
-					list(,$len) = unpack('l', fread($fp, 4));
-					$t[$k] = rtrim($len ? fread($fp, min(YNDB_MAXLEN,$len)) : ''); // protection from PHP emalloc() errors 
-					break;
-				case 'DOUBLE':
-					list(,$i) = unpack('d', fread($fp, YNDB_DBLSZ));
-					$t[$k] = $i;
-					break;
-			}
+			case (self::ROW_NORMAL):
+			
+				foreach($fields as $k=>$v)
+				{
+					switch($v)
+					{
+						case'BYTE':
+							list(,$i) = unpack('c', fgetc($fp));
+							$t[$k] = $i;
+							break;
+						case'INT':
+							list(,$i) = unpack('l', fread($fp, 4));
+							$t[$k] = $i;
+							break;
+						case'TINYTEXT':
+							list(,$len) = unpack('C', fgetc($fp));
+							$t[$k] = ($len ? fread($fp, $len) : '');
+							if($rtrim_strings) $t[$k] = rtrim($t[$k]);
+							break;
+						case'TEXT':
+							list(,$len) = unpack('S', fread($fp, 2));
+							$t[$k] = ($len ? fread($fp, $len) : '');
+							if($rtrim_strings) $t[$k] = rtrim($t[$k]);
+							break;
+						case'LONGTEXT':
+							list(,$len) = unpack('l', fread($fp, 4));
+							$t[$k] = ($len ? fread($fp, min(self::MAXLEN,$len)) : ''); // protection from PHP emalloc() errors 
+							if($rtrim_strings) $t[$k] = rtrim($t[$k]);
+							break;
+						case'DOUBLE':
+							list(,$i) = unpack('d', fread($fp, self::DBLSZ));
+							$t[$k] = $i;
+							break;
+					}
+				}
+			
+				break;
+			case (self::ROW_SPLIT):
+				
+				// read the split row, concatenating all the parts together
+			
+				$data = '';
+				
+				do
+				{
+					//echo 'row split offset: '.ftell($fp).'<br>';
+					
+					$arr = unpack('l2', fread($fp, 8));
+					
+					//print_r($arr);
+					
+					list(,$off,$row_length) = $arr;
+					
+					// protection from emalloc() errors in fread()
+					// (in some PHP versions these are almost uncatchable and lead to 500 Internal Server Error)
+					// see, for example http://bugs.php.net/bug.php?id=29100
+					if($row_length > 16*(self::MAXLEN)) $row_length = 16*(self::MAXLEN);
+					
+					if($row_length < 0) throw new Exception('Data corrupt (invalid row length in row split chain)');
+					
+					//echo 'read data<br>';
+					
+					$data .= fread($fp, $row_length);
+					
+					// offset < 0 means the end of chain
+					// if offset is not seekable, it means data/disk/system corruption,
+					// which we just ignore (perhaps we should not do this...)
+					if($off < 0 || fseek($fp, $off, SEEK_SET) < 0) break;
+					
+					//echo 'offset: '.$off.'<br>';
+					
+					list(,$n) = unpack('c', fgetc($fp));
+					
+					if($n != self::ROW_CONTINUE)
+					{
+						throw new Exception('Data corrupt (lost links in row split chain, expected row type '.(self::ROW_CONTINUE).', got '.$n.'), please run table repair tools if present.');
+					}
+					
+				}while(true);
+				
+				//echo 'data: <pre>'.$data.'</pre>';
+				
+				$j = 0; // j is just a counter which indicates the current string read condition
+				
+				foreach($fields as $k=>$v)
+				{
+					//echo $v.' ';
+					
+					switch($v)
+					{
+						case'BYTE':
+							list(,$i) = unpack('c', $data[$j++]);
+							$t[$k] = $i;
+							break;
+						case'INT':
+							list(,$i) = unpack('l', substr($data, $j, 4));
+							$t[$k] = $i;
+							
+							$j+=4;
+							break;
+						case'TINYTEXT':
+							list(,$len) = unpack('C', $data[$j++]);
+							$t[$k] = ($len ? substr($data, $j, $len) : '');
+							if($rtrim_strings) $t[$k] = rtrim($t[$k]);
+							
+							$j += $len;
+							break;
+						case'TEXT':
+							list(,$len) = unpack('S', substr($data, $j, 2));
+							$j+=2;
+							
+							$t[$k] = ($len ? substr($data, $j, $len) : '');
+							if($rtrim_strings) $t[$k] = rtrim($t[$k]);
+							
+							$j += $len;
+							break;
+						case'LONGTEXT':
+							list(,$len) = unpack('l', substr($data, $j, 4));
+							$j+=4;
+							
+							// protection from PHP emalloc() errors
+							$t[$k] = ($len ? substr($data, $j, min(self::MAXLEN,$len)) : '');
+							if($rtrim_strings) $t[$k] = rtrim($t[$k]);
+							
+							$j += min(self::MAXLEN,$len);
+							break;
+						case'DOUBLE':
+							list(,$i) = unpack('d', substr($data, $j, self::DBLSZ));
+							$t[$k] = $i;
+							
+							$j += self::DBLSZ;
+							break;
+					}
+				}
+				
+				break;
 		}
+		
+		//echo 'fields: <pre>';
+		//print_r($fields);
+		//echo '</pre>result:<pre>';
+		//print_r($t);
+		//echo '</pre>';
 		
 		return $t;
 	}
@@ -677,16 +834,16 @@ class YNDb
 		
 		switch($c[1])
 		{
-			case '=':
+			case'=':
 				if($res[$c[0]] == $c[2]) return true;
 				break;
-			case '>':
+			case'>':
 				if($res[$c[0]] > $c[2]) return true;
 				break;
-			case '<':
+			case'<':
 				if($res[$c[0]] < $c[2]) return true;
 				break;
-			case 'IN':
+			case'IN':
 				if(in_array($res[$c[0]], $c[2])) return true;
 				break;
 		}
@@ -716,6 +873,7 @@ class YNDb
 		$col = false; /* list of columns. FALSE or '*' mean ALL fields */
 		$offsets = false;
 		$explain = false; /* EXPLAIN SELECT instead of SELECT ? */
+		$rtrim_strings = true;
 		
 		extract($crit);
 		
@@ -826,9 +984,9 @@ class YNDb
 						
 						$i = unpack('l', $i);
 						
-						if( @fseek($fp, $i[1]) < 0) continue; /* see previous comment. E.g. negative $i[1] will cause this result */
+						if(@fseek($fp, $i[1]) < 0) continue; /* see previous comment. E.g. negative $i[1] will cause this result */
 						
-						$t = $this->read_row($fields, $fp);
+						$t = $this->read_row($fields, $fp, $rtrim_strings);
 						
 						//print_r($i);
 						
@@ -851,9 +1009,9 @@ class YNDb
 							$i = unpack('l', $i);
 							//array_display($i);
 							
-							if( @fseek($fp, $i[1]) < 0) continue; /* negative $i[1] means that this index does not exist anymore */
+							if(@fseek($fp, $i[1]) < 0) continue; /* negative $i[1] means that this index does not exist anymore */
 							
-							$t = $this->read_row($fields, $fp);
+							$t = $this->read_row($fields, $fp, $rtrim_strings);
 							
 							if($t[$c[0]] <= $c[2] ) continue;
 							
@@ -874,9 +1032,9 @@ class YNDb
 								if(strlen($i)!=4) break;
 								
 								$i = unpack('l', $i);
-								if( @fseek($fp, $i[1]) < 0) continue; /* negative $i[1] means that this index does not exist anymore */
+								if(@fseek($fp, $i[1]) < 0) continue; /* negative $i[1] means that this index does not exist anymore */
 								
-								$t = $this->read_row($fields, $fp);
+								$t = $this->read_row($fields, $fp, $rtrim_strings);
 								
 								if($t[$c[0]] <= $c[2]) continue;
 								
@@ -908,7 +1066,7 @@ class YNDb
 					list($value, $offset) = $tmp;
 					fseek($fp, $offset, SEEK_SET);
 					
-					$res[] = $this->read_row($fields, $fp);
+					$res[] = $this->read_row($fields, $fp, $rtrim_strings);
 				}
 				
 				//fclose($ufp);
@@ -933,7 +1091,7 @@ class YNDb
 					foreach($tmp as $offset)
 					{
 						fseek($fp, $offset, SEEK_SET);
-						$res[] = $this->read_row($fields, $fp);
+						$res[] = $this->read_row($fields, $fp, $rtrim_strings);
 					}
 				}
 				
@@ -948,7 +1106,7 @@ class YNDb
 				
 				while(ftell($fp)<$end)
 				{
-					$t = $this->read_row($fields, $fp);
+					$t = $this->read_row($fields, $fp, $rtrim_strings);
 					
 					$fr = call_user_func($filt, $t, $limit, $cond);
 					
@@ -984,9 +1142,9 @@ class YNDb
 		
 		switch($fields[$order[0]])
 		{
-			case 'INT':
-			case 'BYTE':
-			case 'DOUBLE':
+			case'INT':
+			case'BYTE':
+			case'DOUBLE':
 				if($order[1] == SORT_ASC)
 				{
 					$code = '$arg1[\''.$order[0].'\'] - $arg2[\''.$order[0].'\']';
@@ -1030,6 +1188,9 @@ class YNDb
 		$crit['col'] = '*';
 		$crit['offsets'] = true;
 		$crit['explain'] = false;
+		
+		$crit['rtrim_strings'] = false;
+		$rtrim_strings = false;
 		
 		$success = false;
 		
@@ -1089,8 +1250,28 @@ class YNDb
 					$off = $data['__offset'];
 					
 					fseek($fp, $off, SEEK_SET);
-					$this->read_row($fields, $fp);
-					$next_off = ftell($fp);
+					
+					list(,$n) = unpack('c',fgetc($fp));
+					
+					
+					if($n == self::ROW_NORMAL)
+					{
+						fseek($fp, -1, SEEK_CUR);
+						$this->read_row($fields, $fp, $rtrim_strings);
+						$next_off = ftell($fp);
+					}else if($n == self::ROW_SPLIT)
+					{
+						list(,$next_off,$row_length) = unpack('l2', fread($fp, 8));
+						$next_off = ftell($fp) + $row_length;
+						
+						// do not mark ROW_CONTINUE as deleted -- they will remain
+						// the space will be just wasted, yes, I know
+					}else
+					{
+						throw new Exception('Unknown row type '.$n.' for deletion, perhaps the table is corrupt.');
+					}
+					
+					
 					
 					fseek($fp, $off, SEEK_SET);
 					
@@ -1142,6 +1323,8 @@ class YNDb
 		$crit['col'] = '*';
 		$crit['offsets'] = true;
 		$crit['explain'] = false;
+		
+		$crit['rtrim_strings'] = false;
 		
 		$success = false;
 		
@@ -1247,7 +1430,9 @@ class YNDb
 					
 					fseek($fp, $off, SEEK_SET);
 					
-					$ins = pack('x'); /* data for insertion to db */
+					$ins = '';//pack('x'); /* data for insertion to db */
+					
+					$need_row_split = false;
 					
 					foreach($fields as $k=>$v)
 					{
@@ -1256,15 +1441,15 @@ class YNDb
 						
 						switch($v)
 						{
-							case 'BYTE':
+							case'BYTE':
 								$ins .= pack('c', $d!==false ? $d : $od);
 								break;
-							case 'INT':
+							case'INT':
 								$ins .= pack('l', $d!==false ? $d : $od);
 								break;
-							case 'TINYTEXT':
-							case 'TEXT':
-							case 'LONGTEXT':
+							case'TINYTEXT':
+							case'TEXT':
+							case'LONGTEXT':
 								$length = 'C';
 								if($v == 'TEXT') $length = 'S';
 								if($v == 'LONGTEXT') $length = 'l';
@@ -1275,14 +1460,22 @@ class YNDb
 									$ins .= $od;
 								}else
 								{
-									if(strlen($d) > strlen($od)) $d = substr($d, 0, strlen($od)); // we do not support row splitting, so cannot insert a string with longer value than it was already
-									if(strlen($d) < strlen($od)) $d .= str_repeat(' ', strlen($od) - strlen($d)); // should not add less, as it will lead to row corruption
+									if($length == 'C' && strlen($d) > 255) $d = substr($d, 0, 255);
+									else if($length == 'S' && strlen($d) > 65535) $d = substr($d, 0, 65535);
+									else if($length == 'l' && strlen($d) > self::MAX_LEN) $d = substr($d, 0, self::MAX_LEN);
+									
+									if(strlen($d) > strlen($od))
+									{
+										//$d = substr($d, 0, strlen($od));
+										$need_row_split = true;
+									}
+									if(strlen($d) < strlen($od)) $d .= str_repeat(' ', strlen($od) - strlen($d)); // should not add less, as it can lead to row corruption
 									$ins .= pack($length, strlen($d));
 									$ins .= $d;
 								}
 								
 								break;
-							case 'DOUBLE':
+							case'DOUBLE':
 								$ins .= pack('d', $d!==false ? $d : $od);
 								break;
 						}
@@ -1290,7 +1483,144 @@ class YNDb
 						if($d!==false) $res[$data_key][$k] = $d;
 					}
 					
-					fputs($fp, $ins, strlen($ins)); // 0 bytes written means an error too
+					list(,$n) = unpack('c', fgetc($fp));
+					
+					if($n == self::ROW_NORMAL)
+					{
+						if(!$need_row_split)
+						{
+							//echo 'No need to split row<br>';
+							
+							fwrite($fp, $ins, strlen($ins)); // 0 bytes written means an error too
+						}else
+						{
+							//echo 'Need to split row<br>';
+							
+							// first, determine initial length
+							fseek($fp, -1, SEEK_CUR);
+							
+							$old_pos = ftell($fp);
+							$this->read_row($fields, $fp, $rtrim_strings = false);
+							$length = ftell($fp) - $old_pos - 1; // 1 byte which indicates row state is not counted
+							
+							// the point is that we do not want to do the split row operation often,
+							// so we leave some space (either 32 bytes or excess size),
+							// choosing the highest value
+							
+							// length in the original row will be decreased by 8 bytes
+							// as we write OFFSET_NEXT_PART and ROW_LENGTH first and then data
+							$add_length = strlen($ins) - $length + 8;
+							$spare_length = max( 32, ((strlen($ins) - $length)) );
+							
+							// first, write the tail
+							fseek($fp, 0, SEEK_END);
+							$next_off = ftell($fp);
+							
+							// write TYPE, OFFSET_OF_NEXT_PART = -1
+							fwrite($fp, pack('cll', self::ROW_CONTINUE, -1, $add_length + $spare_length));
+							
+							// the thing is that actual data in the original row will become shorter
+							// by 8 bytes as we write OFFSET_NEXT_PART and ROW_LENGTH first and then data
+							fwrite($fp, substr($ins, $length - 8));
+							fwrite($fp, str_repeat(pack('x'), $spare_length));
+							
+							// tail written, now rewrite original row
+							fseek($fp, $old_pos, SEEK_SET);
+							fwrite($fp, pack('cll', self::ROW_SPLIT, $next_off, $length - 8));
+							fwrite($fp, substr($ins, 0, $length-8));
+						}
+					}else if($n == self::ROW_SPLIT)
+					{
+						// need_row_split is used only in case the field has not been split before
+						// because otherwise we have an easy way to determine overall length of the fragments
+						// and decide whether row split if really required
+						
+						
+						
+						fseek($fp, -1, SEEK_CUR);
+						$old_off = ftell($fp);
+						
+						//echo 'Row is split at offset '.$old_off.'<br>';
+						
+						//echo 'Row contents: <pre>',!print_r($this->read_row(array_merge(array('__offset' => 'OFFSET'),$fields), $fp, false)),'</pre>';
+						
+						fseek($fp, $old_off, SEEK_SET);
+						
+						$chunks = array(); // ROW_OFFSET => ROW_LENGTH
+						
+						$offset = $old_off;
+						
+						while(true)
+						{
+							//echo 'get row type from '.ftell($fp).'<br>';
+							
+							list(,$n) = unpack('c', fgetc($fp));
+							list(,$next_offset,$row_length) = unpack('l2', fread($fp,8));
+							
+							$chunks[$offset] = $row_length;
+							
+							if($n != self::ROW_SPLIT && $n != self::ROW_CONTINUE) throw new Exception('Data file corrupt (invalid beginning of split row, expected '.(self::ROW_SPLIT).' or '.(self::ROW_CONTINUE).', got '.$n.'). Please run repair table tools if present.');
+							if($offset < 0 || fseek($fp, $next_offset) < 0) break;
+							
+							$offset = $next_offset;
+						}
+						
+						//echo 'chunks: <pre>',!print_r($chunks),'</pre>';
+						
+						$chunks_offs = array_keys($chunks);
+						$chunks_len = array_sum($chunks);
+						
+						if(strlen($ins) <= $chunks_len) $need_row_split = false;
+						else                            $need_row_split = true;
+						
+						if($need_row_split)
+						{
+							//echo 'Need to split row (with total of '.(sizeof($chunks) + 1).' chunks)<br>';
+							
+							// adding new chunk
+							
+							fseek($fp, 0, SEEK_END);
+							$offset = ftell($fp);
+							
+							$chunks[$offset] = strlen($ins) - $chunks_len + max(32, ((strlen($ins) - $chunks_len)) );
+							$chunks_len += $chunks[$offset];
+							$chunks_offs[] = $offset;
+						}
+						
+						// right padding initial string with zero bytes
+						// so that we can just use substr() to get data for chunks
+						
+						if(strlen($ins) < $chunks_len) $ins .= str_repeat( pack('x'), $chunks_len - strlen($ins) );
+						
+						$spl = true; // split or continue?
+						$str_j = 0; // current position in data string
+						$str_i = 0; // next chunk index
+						
+						foreach($chunks as $offset=>$row_length)
+						{
+							fseek($fp, $offset, SEEK_SET);
+							
+							$next_off = -1;
+							$str_i++;
+							if(isset($chunks_offs[$str_i])) $next_off = $chunks_offs[$str_i];
+							
+							fwrite($fp, pack('cll', $spl ? self::ROW_SPLIT : self::ROW_CONTINUE, $next_off, $row_length) );
+							
+							$spl = false;
+							
+							fwrite($fp, substr($ins, $str_j, $row_length));
+							$str_j += $row_length;
+						}
+						
+						// thanks for reading this rather short, but very exciting part :))
+					}else
+					{
+						throw new Exception('Data file error (unknown row type).');
+					}
+					
+					// 
+					
+					
 				}
 			}else
 			{
