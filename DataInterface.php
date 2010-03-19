@@ -18,12 +18,11 @@ require YN_HOME.'/core/Db.php';
 // So, remember: single instance per directory, all opened tables must be unique
 // The last limitation could be avoided if libc supported normal "dup()" analogue. But it does not.
 
-define('DI_INDEX_PRIMARY', 0);
-define('DI_INDEX_INDEX',   1);
-define('DI_INDEX_UNIQUE',  2);
-
 final class YNDataInterface extends YNDb
 {
+	const INDEX_PRIMARY = 0;
+	const INDEX_INDEX   = 1;
+	const INDEX_UNIQUE  = 2;
 	
 	function __construct($dir)
 	{
@@ -45,7 +44,7 @@ final class YNDataInterface extends YNDb
 	}
 	
 	// checks if table $name exists
-	// one should use getTableStructure() if he wants to check, if the table exists and get the table structure
+	// one should use getTableStructure() if he wants to both check if the table exists and get the table structure
 	
 	// returns bool
 	
@@ -183,7 +182,7 @@ final class YNDataInterface extends YNDb
 		
 		if(!$this->lock_table($name)) return false;
 		
-		$type = false; // types can be: DI_INDEX_PRIMARY, DI_INDEX_INDEX, DI_INDEX_UNIQUE
+		$type = false; // types can be: self::INDEX_PRIMARY, self::INDEX_INDEX, self::INDEX_UNIQUE
 		$pointers = false; // if one pointer, than it is just a value. Several pointers should be presented as cortege (an ordered list)
 		
 		try
@@ -192,16 +191,16 @@ final class YNDataInterface extends YNDb
 			
 			extract(/*$str_res = */$this->locked_tables_list[$name]);
 			
-			if($col == $aname)               $type = DI_INDEX_PRIMARY;
-			else if(in_array($col, $index))  $type = DI_INDEX_INDEX;
-			else if(in_array($col, $unique)) $type = DI_INDEX_UNIQUE;
+			if($col == $aname)               $type = self::INDEX_PRIMARY;
+			else if(in_array($col, $index))  $type = self::INDEX_INDEX;
+			else if(in_array($col, $unique)) $type = self::INDEX_UNIQUE;
 			else                             throw new Exception('No index for column `'.$col.'`"');
 			
 			$columns = $this->checkColumns($fields, $columns);
 			
 			switch($type)
 			{
-				case DI_INDEX_PRIMARY:
+				case self::INDEX_PRIMARY:
 					
 					$pfp = fopen_cached($this->dir.'/'.$name.'.pri', 'r+b');
 					
@@ -210,7 +209,7 @@ final class YNDataInterface extends YNDb
 					$pointers = $pfp;
 					
 					break;
-				case DI_INDEX_UNIQUE:
+				case self::INDEX_UNIQUE:
 				
 					$ufp = fopen_cached($this->dir.'/'.$name.'.btr', 'r+b');
 					
@@ -219,7 +218,7 @@ final class YNDataInterface extends YNDb
 					$pointers = $ufp;
 					
 					break;
-				case DI_INDEX_INDEX:
+				case self::INDEX_INDEX:
 				
 					$ifp  = fopen_cached($this->dir.'/'.$name.'.btr', 'r+b');
 					$ifpi = fopen_cached($this->dir.'/'.$name.'.idx', 'r+b');
@@ -250,7 +249,7 @@ final class YNDataInterface extends YNDb
 		return array($name, $columns, $col, $value, $meta, $type, $pointers, $fp, $uniqid, $fields);
 	}
 	
-	protected var $EM_results_cache = array();
+	protected $EM_results_cache = array();
 	
 	function fetchRow_Index_ExactMatch($resource)
 	{
@@ -260,7 +259,7 @@ final class YNDataInterface extends YNDb
 		
 		switch($type)
 		{
-			case DI_INDEX_PRIMARY:
+			case self::INDEX_PRIMARY:
 				
 				$pfp = $pointers;
 				
@@ -289,7 +288,7 @@ final class YNDataInterface extends YNDb
 				$this->EM_results_cache[$uniqid] = true; // a flag that should indicate that an entry (max. 1 entry) is returned and no need to return it again
 				
 				break;
-			case DI_INDEX_UNIQUE:
+			case self::INDEX_UNIQUE:
 			
 				$ufp = $pointers;
 				
@@ -308,7 +307,7 @@ final class YNDataInterface extends YNDb
 				$this->EM_results_cache[$uniqid] = true; // a flag that should indicate that an entry (max. 1 entry) is returned and no need to return it again
 				
 				break;
-			case DI_INDEX_INDEX:
+			case self::INDEX_INDEX:
 			
 				list($ifp, $ifpi) = $pointers;
 				
@@ -363,7 +362,7 @@ final class YNDataInterface extends YNDb
 	{
 		static $i = 0;
 		
-		if(!is_array($values)) throw new Exception('Values list should be a list!');
+		if(!is_array($values)) throw new Exception('Values list must be a list!');
 		
 		$res = array();
 		$values = array_unique($values); // all values are going to be unique, and so all the returned rows are unique too
@@ -418,7 +417,7 @@ final class YNDataInterface extends YNDb
 		{
 			foreach($this->EML_opened_tables[$i] as $el)
 			{
-				$this->closeTable_Index_ExactMatch($el)
+				$this->closeTable_Index_ExactMatch($el);
 			}
 			
 			unset($this->EML_opened_tables[$i]);

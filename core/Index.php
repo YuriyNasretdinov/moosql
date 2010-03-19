@@ -6,18 +6,12 @@
 
 */
 
-// next two lines should be removed, only generalized B-Tree should be used
-//require YNDB_HOME.'/BTree.php';
-//require YNDB_HOME.'/BTree_Idx.php';
-
 require YNDB_HOME.'/BTree_gen.php';
 require YNDB_HOME.'/BTree_Idx_gen.php';
 
 final class YNIndex
 {
     protected $DB = null; /* DB instance */
-	//public /* readonly */ $BTR = null; /* YNBTree instance */
-	//public /* readonly */ $BTRI = null; /* YNBTree_Idx instance */
 	
 	public /* readonly */ $BTR1s = null; // YNBTree_gen 1 byte signed instance
 	public /* readonly */ $BTR4s = null; // YNBTree_gen 4 bytes signed instance
@@ -28,13 +22,11 @@ final class YNIndex
 	public /* readonly */ $BTRId  = null; // YNBTree_Idx_gen DOUBLE instance
 	
 	// meta must be set explicitly for each table you work with
-	public $meta = null; /* metadata for YNBTree and YNBTree_Idx */
+	public $meta = null; /* metadata for YNBTree_gen and YNBTree_Idx_gen */
 	
     function __construct($db_obj)
     {
         $this->DB = $db_obj;
-		//$this->BTR = new YNBTree($db_obj);
-		//$this->BTRI = new YNBTree_Idx($db_obj);
 		
 		$this->BTR1s = new YNBTree_gen($db_obj, 2048, 1, 'c');
 		$this->BTR4s = new YNBTree_gen($db_obj, 2048, 4, 'l');

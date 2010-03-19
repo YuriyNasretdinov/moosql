@@ -12,18 +12,7 @@
        So, if you are to understand the code below, read the links above carefully and try to understand how that works.
 */
 
-// minimum and maximum number of children in BTREE node
-
-//define('BTR_L', 85);
-//define('BTR_U', 170);
 define('BTR_DEBUG', false);
-
-// debug
-//define('BTR_L',4);
-//define('BTR_U',8);
-//define('BTR_DEBUG', true);
-
-//define('BTR_BLKSZ', (BTR_U*3 )*4 + 8 /* 8 NULL bytes */); // should be 2048
 
 if(!function_exists('pack_v'))
 {
@@ -71,10 +60,11 @@ class YNBTree_gen
         /* N:ISLEAF:P1:...:PU:V1:...:V(U-1):OFF_1:...:OFF_(U-1) */
         
         // P -- pointers, V -- values, OFF -- offsets
+        // N and ISLEAF are 32-bit digits
         // pointers and offsets are 32-bit
         // size of values is variable
         
-        // the formula below was carefully calculated on a sheet of paper
+        // the formula below was carefully calculated on a sheet of paper with the assumption that U = 2L
         $this->L = floor( floor( ($blksz + $itemsz - 4) / (8 + $itemsz) ) / 2 );
         $this->U = 2*$this->L;
     }
@@ -135,6 +125,7 @@ class YNBTree_gen
         $offsets  = array_values( unpack('l'.($U-1), substr($data, 8+$U*4+($U-1)*$SZ, ($U-1)*4   ) ) );
         
 		@$GLOBALS['read_block_time'] += microtime(true)-$st;
+		@$GLOBALS['read_block_calls']++;
 		
         return array( $N, $ISLEAF, $pointers, $values, $offsets );
     }
@@ -167,6 +158,7 @@ class YNBTree_gen
         fseek($fp, $pos, SEEK_SET);
 
 		@$GLOBALS['write_block_time'] += microtime(true)-$st;
+		@$GLOBALS['write_block_calls']++;
 		
         if(!fwrite($fp,$data)) throw new Exception('B-Tree write block failed at position '.$pos);
     }
