@@ -321,18 +321,27 @@ class YNDb
 	{
 		//echo 'lock table '.$name.'<br>';
 		
+		$path = $this->dir.'/'.$name.'.str';
+		$lpath = $this->dir.'/'.$name.'.lock';
+		
+		if(!$str_fp = fopen_cached($path, 'r+b')) throw new Exception('File with table structure is corrupt!');
+		
+		$lock_fp = fopen_cached($lpath, 'r+b');
+		
 		if(!isset($this->locked_tables_list[$name]))
 		{
-			$t = $this->read_struct_start($name);
+			flock_cached($lpath, 'r+b', $excl ? LOCK_EX : LOCK_SH);
+			
+			$t = $this->read_struct($str_fp);
 			
 			$this->locked_tables_list[$name] = $t;
 			$this->locked_tables_locks_count[$name] = 1;
 		}else
 		{
+			if($excl) flock_cached($lpath, 'r+b', LOCK_EX); // table can be previously locked in shared mode
+			
 			$this->locked_tables_locks_count[$name]++;
 		}
-		
-		if($excl) flock_cached($this->dir.'/'.$name.'.lock', 'r+b', LOCK_EX);
 		
 		return true;
 	}
@@ -360,28 +369,19 @@ class YNDb
 				return true;
 			}
 			
-			$res = $this->locked_tables_list[$name];
-			
 			// in case unlock failed, it will raise exception that we just pass :)
 			
-			if($this->read_struct_end($res, $name)) unset($this->locked_tables_list[$name]);
+			flock_cached($this->dir.'/'.$name.'.lock', 'r+b', LOCK_UN);
+			
+			unset($this->locked_tables_list[$name]);
 		}
 		
 		
 	}
 	
-	protected function read_struct_start($name /* table name */) // sets the shared lock! (use lock_table() to set exclusive lock)
+	protected function read_struct($str_fp)
 	{
-		$path = $this->dir.'/'.$name.'.str';
-		$lpath = $this->dir.'/'.$name.'.lock';
-		
-		if(!$str_fp = fopen_cached($path, 'r+b'/*, true /* lock the file pointer */)) throw new Exception('File with table structure is corrupt!');
-		
-		$lock_fp = fopen_cached($lpath, 'r+b');
-		
-		flock_cached($lpath, 'r+b', LOCK_SH);
-		
-		//@flock($str_fp, LOCK_EX);
+		//fflush($str_fp);
 		
 		fseek($str_fp, 0, SEEK_SET);
 		
@@ -406,28 +406,6 @@ class YNDb
 			'index'   => $params['INDEX'],
 			'meta'    => $meta,
 		);
-	}
-	
-	protected function read_struct_end($res, $name)
-	{
-		$lpath = $this->dir.'/'.$name.'.lock';
-		
-		/*$str_fp = $res['str_fp'];
-		@flock($str_fp, LOCK_UN);
-		fclose($str_fp);*/
-		
-		//global $fopen_cache;
-		
-		//echo '<pre>', !print_r($fopen_cache), '</pre>';
-		
-		flock_cached($lpath, 'r+b', LOCK_UN);
-		//fclose_cached($lpath, 'r+b');
-		
-		//fflush($str_fp);
-		
-		// actually, no actions are required, as the file with structure will be closed some time later automatically
-		
-		return true;
 	}
 	
 	public function insert($name, $data)
@@ -596,8 +574,8 @@ class YNDb
 			// unfortunately it just SILENTLY ignores write operations (at least in PHP),
 			// and because of that it was not very easy to debug
 			
-			$this->locked_tables_list[$name]['acnt'] = $acnt;
-			$this->locked_tables_list[$name]['meta'] = $meta;
+			//$this->locked_tables_list[$name]['acnt'] = $acnt;
+			//$this->locked_tables_list[$name]['meta'] = $meta;
 		}
 		
 		foreach(explode(' ', 'pfp ifpi ifp ufp fp') as $v)
