@@ -1,0 +1,3 @@
+This folder will contain test tables after you run tests.
+
+Do not forget to run "rm -rf data/*" after you have finished tests.
