@@ -6,12 +6,11 @@ include('const.php');
 // compare performance on single proccess
 // versus two processes
 
-/*$pid = */
-// 8 inserts
+// 2 parallel inserts
 
 pcntl_fork();
-pcntl_fork();
-pcntl_fork();
+//pcntl_fork();
+//pcntl_fork();
 //$pid = 0;
 
 echo "Initializing YNDb\n";
