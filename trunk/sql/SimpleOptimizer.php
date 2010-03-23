@@ -2,7 +2,7 @@
 
 echo "SimpleOptimizer included.\n";
 
-final class YNSimpleOptimizer {
+final class MooSimpleOptimizer {
 	protected $db = null;
 	protected $tokens = array();
 	protected $hash = '';
@@ -28,7 +28,7 @@ final class YNSimpleOptimizer {
 	
 	protected function validateSelect($from, $to) {
 		if ($to !== $from + 1
-			or $this->tokens[$to][0] !== YNParser::TOKEN_SINGLECHAR
+			or $this->tokens[$to][0] !== MooLexer::TOKEN_SINGLECHAR
 			or $this->tokens[$to][1] !== '*') {
 			throw new Exception('SELECT clause can contain only \'*\'.');
 		}
@@ -39,7 +39,7 @@ final class YNSimpleOptimizer {
 			throw new Exception('FROM clause must contain one table reference.');
 		}
 		$table_token = $this->tokens[$to];
-		if ($table_token[0] !== YNParser::TOKEN_IDENTIFIER) {
+		if ($table_token[0] !== MooLexer::TOKEN_IDENTIFIER) {
 			throw new Exception('Table reference must be an identifier.');
 		}
 		$table_name = $table_token[1];
@@ -52,14 +52,14 @@ final class YNSimpleOptimizer {
 		// This is going to be very complex, but by now we have to make it pretty simple for the sake of development.
 
 		// Blow up if the statement is not a SELECT:
-		if (!($this->tokens[0][0] == YNParser::TOKEN_RESERVED and $this->tokens[0][1] == 'SELECT')) {
+		if (!($this->tokens[0][0] == MooLexer::TOKEN_RESERVED and $this->tokens[0][1] == 'SELECT')) {
 			throw new Exception("Not implemented.");
 		}
 
 		// a VERY SIMPLE clause search:
 		$clauses = array('SELECT' => 0);
 		foreach ($this->tokens as $_t_k => $t) {
-			if ($t[0] = YNParser::TOKEN_RESERVED) {
+			if ($t[0] = MooLexer::TOKEN_RESERVED) {
 				if (in_array($t[1], array('FROM', 'WHERE', 'GROUP', 'ORDER'))) {
 					$clauses[$t[1]] = $_t_k;
 				}
@@ -91,7 +91,7 @@ final class YNSimpleOptimizer {
 
 		// Generate the execution plan class file:
 		$export_tokens = var_export($this->tokens, true);
-		$plan_class_name = YNParser::PLAN_PREFIX . $this->hash;
+		$plan_class_name = MooLexer::PLAN_PREFIX . $this->hash;
 		$plan_dir_name = $this->db->getDatabaseDirectory() . '/plans';
 		if (is_dir($plan_dir_name) and is_writeable($plan_dir_name)) {
 			$plan_class_path = $plan_dir_name . '/' . $plan_class_name . '.php';
@@ -103,7 +103,7 @@ final class YNSimpleOptimizer {
 			<<<EOD
 <?php
 
-class $plan_class_name extends YNExecPlan {
+class $plan_class_name extends MooExecPlan {
 	protected \$rt = '';
 	protected \$r = array();
 	
