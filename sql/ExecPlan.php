@@ -1,6 +1,6 @@
 <?php
 
-abstract class YNExecPlan {
+abstract class MooExecPlan {
 	protected $db = null;
 	protected $bindValues = array();
 	

@@ -9,11 +9,11 @@
  * for it may slightly change in future versions without any notice.
  */
 
-if(!defined('YN_HOME')) define('YN_HOME', dirname(__FILE__));
+define('MOO_HOME', dirname(__FILE__));
 
-require 'Parser.php';
+require MOO_HOME . '/sql/Lexer.php';
 
-final class YNResource {
+final class MooResource {
 	protected $db = null;
 	protected $sql = null;
 	protected $parser = null;
@@ -33,10 +33,10 @@ final class YNResource {
 	
 	// removing circular references, so not causing a memory leak
 	public function __destruct() {
-		$this->db     = null;
+		$this->db = null;
 		$this->parser = null;
-		$this->sql    = null;
-		$this->plan   = null;
+		$this->sql = null;
+		$this->plan = null;
 	}
 	
 	public function fetch() {
@@ -44,25 +44,25 @@ final class YNResource {
 	}
 }
 
-final class YNClient {
+final class MooClient {
 	protected $db = null;
 	protected $dir = '';
 	protected $parser = null;
 	
 	public function __construct($dir) {
 		$this->dir = $dir;
-		$this->db = new YNDataInterface($this->dir);
-		$this->parser = new YNParser($this->db, $this->dir);
+		$this->db = new MooDataInterface($this->dir);
+		$this->parser = new MooParser($this->db, $this->dir);
 	}
 	
 	// removing circular references, so not causing a memory leak
 	public function __destruct() {
-		$this->db     = null;
+		$this->db = null;
 		$this->parser = null;
 	}
 	
 	public function query($sql) {
-		return new YNResource($this->db, $this->parser, $sql);
+		return new MooResource($this->db, $this->parser, $sql);
 	}
 }
 

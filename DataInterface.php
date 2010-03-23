@@ -1,24 +1,24 @@
 <?php
 // class for internal usage!
 
-require YN_HOME.'/core/Db.php';
+require MOO_HOME.'/core/Db.php';
 
 // a data interface to table
 // an extension of YNDb class,
 // which just provides a method-like API for data access, without raw access
 
 // should be initiatied like YNDb:
-// $DI = new YNDataInterface( 'work_directory' );
+// $DI = new MooDataInterface( 'work_directory' );
 // 
 // you must not have multiple instances of that class!
-// you must not also have both YNDb and YNDataInterface be instantiated at the same time!
+// you must not also have both YNDb and MooDataInterface be instantiated at the same time!
 //
 // you also must not have the same table be opened several times simultaneously (e.g. FullScan + Index)
 
 // So, remember: single instance per directory, all opened tables must be unique
 // The last limitation could be avoided if libc supported normal "dup()" analogue. But it does not.
 
-final class YNDataInterface extends YNDb
+final class MooDataInterface extends YNDb
 {
 	const INDEX_PRIMARY = 0;
 	const INDEX_INDEX   = 1;

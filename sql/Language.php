@@ -1,8 +1,12 @@
 <?php
 
-class YNTokens {
+class MooLang {
 	public static $version = '0.0.1';
-	public static $reserved_words = array(
+
+	/**
+	 * Reserved words
+	 */
+	public static $r = array(
 		'SELECT', 'DELETE', 'UPDATE', 'INSERT',
 		'FROM', 'INTO', 'VALUES', 'WHERE', 'GROUP', 'ORDER', 'BY', 'ASC', 'DESC',
 		'AS', 'IN', 'BETWEEN', 'AND', 'OR', 'NOT', 'LIKE', 'NULL',
@@ -11,11 +15,17 @@ class YNTokens {
 		'COLUMN', 'CONSTRAINT',
 	);
 	
-	public static $mchar_tokens = array(
+	/**
+	 * Multi-character tokens
+	 */
+	public static $cx = array(
 		'>=', '<=',
 	);
 	
-	public static $schar_tokens = array(
+	/**
+	 * Single-character tokens
+	 */
+	public static $c1 = array(
 		'-', '+', '.', '=', '>', '<', '*', '/', ',', '(', ')'
 	);
 }
