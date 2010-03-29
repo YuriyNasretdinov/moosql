@@ -426,6 +426,10 @@ final class MooDataInterface extends YNDb
 		return true;
 	}
 	
+	/*
+	TODO: Allow to specify only min or only max value, support TRUE ranges
+	*/
+	
 	function openTable_Index_Range($name, $columns, $col, $min, $max)
 	{
 		return $this->openTable_Index_ExactMatchList($name, $columns, $col, range($min,$max));

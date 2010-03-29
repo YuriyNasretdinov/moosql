@@ -1,15 +1,24 @@
-These are parallel tests only for YNDb part and do not cover SQL
+The *.php files are the different tests that are used for testing MooSQL in the development process
 
-As they are parallel, they use pcntl_fork(), which is NOT enabled by default in PHP
+"data/" directory is the directory with test tables
 
-They will not work under Windows unless PHP is compiled with PCNTL support,
-which is only possible under Cygwin. I haven't managed to do this yet...
+COMMENT ON "parallel-*.php":
 
-Under other UNIXes you may also need to (re)compile PHP with PCNTL support
+	These parallel tests are only for YNDb part and do not cover SQL
 
-E.g. under Mac OS X the following sequence works perfectly (it should work under any *nix):
+	As they are parallel, they use pcntl_fork(), which is NOT enabled by default in PHP
 
-$ ./configure --enable-cli --enable-pcntl --without-iconv
-$ make
+	They will not work under Windows unless PHP is compiled with PCNTL support,
+	which is only possible under Cygwin. You can use cygport to compile PHP from source,
+	but you will need to make modifications to the .cygport file itself to add pcntl support.
 
-After this process, use "sapi/cli/php" binary to run the tests.
+	The complete Cygwin installation with working PHP binary will be available in some time.
+
+	Under other UNIXes you may also need to (re)compile PHP with PCNTL support
+
+	E.g. under Mac OS X the following sequence works perfectly (it should work under any *nix):
+
+	$ ./configure --enable-cli --enable-pcntl --without-iconv
+	$ make
+
+	After this process, use "sapi/cli/php" binary to run the tests.
