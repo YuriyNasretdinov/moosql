@@ -6,6 +6,7 @@ if(!defined('MOO_HOME')) {
 
 require MOO_HOME . '/sql/Language.php';
 require MOO_HOME . '/sql/ExecPlan.php';
+require MOO_HOME . '/sql/Parser.php';
 require MOO_HOME . '/DataInterface.php';
 
 final class MooLexer {

@@ -711,6 +711,8 @@ class YNDb
 			
 				$data = '';
 				
+				$row_end_pos = false;
+				
 				do
 				{
 					//echo 'row split offset: '.ftell($fp).'<br>';
@@ -731,6 +733,8 @@ class YNDb
 					//echo 'read data<br>';
 					
 					$data .= fread($fp, $row_length);
+					
+					if($row_end_pos === false) $row_end_pos = ftell($fp);
 					
 					// offset < 0 means the end of chain
 					// if offset is not seekable, it means data/disk/system corruption,
@@ -802,6 +806,10 @@ class YNDb
 							break;
 					}
 				}
+				
+				// when doing a sequential read, the offset in $fp
+				// must point to the beginning of the next row
+				fseek($fp, $row_end_pos, SEEK_SET);
 				
 				break;
 		}
