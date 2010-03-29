@@ -1,5 +1,5 @@
 <?
-include('const.php');
+include 'parallel-const.php';
 
 //system('rm -r ./data/*');
 

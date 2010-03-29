@@ -1,5 +1,5 @@
 <?
-include 'const.php';
+include 'parallel-const.php';
 
 // 2^2 = 4 processes
 

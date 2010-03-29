@@ -80,6 +80,14 @@ final class YNIndex
         
         return $this->$class->insert($fp, $this->meta[$unique], $value, $offset);
     }
+
+	function search_unique($fp, $data, $fields, $unique)
+    {   
+        $value = $data[$unique];
+        $class = $this->classnames_unique[$fields[$unique]];
+		
+        return $this->$class->fsearch($fp, $this->meta[$unique], $value);
+    }
     
     /* $fp  -- .btr.idx file pointer (r+b)
        $fpi -- .idx file pointer (r+b)
@@ -92,6 +100,14 @@ final class YNIndex
         $class = $this->classnames_index[$fields[$index]];
         
         return $this->$class->insert($fp, $fpi, $this->meta[$index], $value, $offset);
+    }
+
+	function search_index($fp, $fpi, $data, $fields, $index)
+    {
+        $value = $data[$index];
+        $class = $this->classnames_index[$fields[$index]];
+        
+        return $this->$class->search($fp, $fpi, $this->meta[$index], $value);
     }
     
 	//public $primary_time = 0;

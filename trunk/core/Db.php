@@ -294,7 +294,7 @@ class YNDb
 		$str_fp = fopen($this->dir.'/'.$name.'.str', 'wb');
 		fputs($str_fp, serialize(array($fields,$params,$meta)));
 		fclose($str_fp);
-		mkdir($this->dir . '/plans'); // create directory for execution plans
+		if(!file_exists($this->dir.'/plans')) mkdir($this->dir.'/plans'); // create directory for execution plans
 		
 		// flock($lock_fp, LOCK_UN) // not required
 		fclose($lock_fp);
@@ -432,6 +432,26 @@ class YNDb
 			
 			$this->I->meta = $meta;
 			
+			/* FIRST, check for UNIQUE fields consistency */
+			$need_unique_insert = sizeof($unique);
+			
+			if($need_unique_insert && ($ufp = fopen_cached($this->dir.'/'.$name.'.btr', 'r+b')))
+			{
+				foreach($unique as $unique_name)
+				{
+					if(!isset($data[$unique_name])) $data[$unique_name] = 0;
+					
+					if($this->I->search_unique($ufp, $data, $fields, $unique_name) !== false)
+					{
+						throw new Exception('Duplicate key '.$data[$unique_name].' for '.$unique_name);
+					}
+				}
+			}else if($need_unique_insert && !$ufp)
+			{
+				throw new Exception('Unique index file corrupt.');
+			}
+			
+			
 			if($aname)
 			{				
 				if(!$pfp = fopen_cached($this->dir.'/'.$name.'.pri', 'r+b')) throw new Exception('Primary index file is corrupt.');
@@ -454,22 +474,14 @@ class YNDb
 			
 			/* optimization for UNIQUE key field */
 			$st = microtime(true);
-			if(sizeof($unique) /* name of unique field. only INT type! */)
+			if($need_unique_insert /* name of unique field. only INT type! */)
 			{
-				if(!$ufp = fopen_cached($this->dir.'/'.$name.'.btr', 'r+b'))
-				{
-					throw new Exception('Unique index file is corrupt.');
-				}
-				
 				// we remove the check for errors as we do not use rfio anymore and cannot revert changes
 				
-				foreach($unique as $unique_name) $this->I->insert_unique($ufp,$data,$fields,$unique_name,$row_start);
-				
-				/*if(!$ret)
+				foreach($unique as $unique_name)
 				{
-					$err = true;
-					break;
-				}*/
+					$this->I->insert_unique($ufp,$data,$fields,$unique_name,$row_start);
+				}
 			}
 			$GLOBALS['unique_time'] += microtime(true)-$st;
 			
@@ -538,6 +550,8 @@ class YNDb
 		
 		}catch(Exception $e)
 		{
+			$this->unlock_table($name);
+			
 			throw $e;
 		}
 		
@@ -1312,11 +1326,49 @@ class YNDb
 		{
 			$res = $this->select( $name, $crit, $str_res );
 			
+			if(isset($new_data[$aname]) && sizeof($res) > 1)
+			{
+				throw new Exception('You cannot set new PRIMARY KEY value for more than one row at once.');
+			}
+			
 			if($res === false) break;
+			
+			/* PHASE 0: Check that row update will not cause "Duplicate key errors"  */
+			
+			$need_unique_update = sizeof($unique) && sizeof( array_intersect($unique,array_keys($new_data)) );
+			
+			if($need_unique_update && ($ufp = fopen_cached($this->dir.'/'.$name.'.btr', 'r+b')))
+			{
+				foreach($unique as $unique_name)
+				{
+					if(!isset($new_data[$unique_name])) continue;
+					
+					/*
+					The conflict will be caused if:
+					
+					- the row updated from the old value to the value that already exists
+					- if the update tries to set the same value for number of rows that exceed 1
+					
+					*/
+					
+					$srch = $this->I->search_unique($ufp, $new_data, $fields, $unique_name);
+					
+					if(sizeof($res) > 1 || (sizeof($res) == 1 && $res[0][$unique_name] != $new_data[$unique_name] && $srch !== false))
+					{
+						throw new Exception('Duplicate key '.$new_data[$unique_name].' for '.$unique_name);
+					}
+				}
+			}else if($need_unique_update && !$ufp)
+			{
+				throw new Exception('Unique index file corrupt.');
+			}
+			
+			/* PHASE 1: Check for primary index & insert new value if needed */
 			
 			if(isset($new_data[$aname]) && $pfp = fopen_cached($this->dir.'/'.$name.'.pri', 'r+b'))
 			{
 				$succ = true;
+				
 				foreach($res as $data)
 				{
 					if(isset($new_data[$aname]) && $new_data[$aname] < $acnt && $new_data[$aname] != $data[$aname]) // allow to insert values that do not duplicate existing ones and have lower that $acnt values
@@ -1348,11 +1400,33 @@ class YNDb
 				throw new Exception('Primary index file corrupt.');
 			}
 			
+			/* PHASE 2: Insert unique index values (it is safe to do now) */
+			
 			//echo 'SUCC '.__LINE__.'<br>';
 			
-			$need_update = sizeof($index) && sizeof( array_intersect($index,array_keys($new_data)) );
+			if($need_unique_update)
+			{
+				foreach($unique as $unique_name)
+				{
+					if(!isset($new_data[$unique_name])) continue;
+					
+					foreach($res as $data)
+					{
+						if($data[$unique_name] == $new_data[$unique_name]) continue;
+
+						$this->I->delete_unique($ufp, $data, $fields, $unique_name);
+						$this->I->insert_unique($ufp, $new_data, $fields, $unique_name, $data['__offset']);
+					}
+				}
+			}
 			
-			if($need_update && ($ifpi = fopen_cached($this->dir.'/'.$name.'.idx', 'r+b')) && ($ifp  = fopen_cached($this->dir.'/'.$name.'.btr', 'r+b')))
+			/* PHASE 3: Insert index values */
+			
+			//echo 'SUCC '.__LINE__.'<br>';
+			
+			$need_index_update = sizeof($index) && sizeof( array_intersect($index,array_keys($new_data)) );
+			
+			if($need_index_update && ($ifpi = fopen_cached($this->dir.'/'.$name.'.idx', 'r+b')) && ($ifp  = fopen_cached($this->dir.'/'.$name.'.btr', 'r+b')))
 			{
 				foreach($index as $index_name)
 				{
@@ -1368,35 +1442,14 @@ class YNDb
 				}
 				
 			//	echo 'FAIL '.__LINE__.'<br>';
-			}else if($need_update && (!$ifpi || !$ifp))
+			}else if($need_index_update && (!$ifpi || !$ifp))
 			{
 				throw new Exception('Index file corrupt.');
 				
 			//	echo 'FAIL '.__LINE__.'<br>';
 			}
 			
-			//echo 'SUCC '.__LINE__.'<br>';
-			
-			$need_update = sizeof($unique) && sizeof( array_intersect($unique,array_keys($new_data)) );
-			
-			if($need_update && ($ufp = fopen_cached($this->dir.'/'.$name.'.btr', 'r+b')))
-			{
-				foreach($unique as $unique_name)
-				{
-					if(!isset($new_data[$unique_name])) continue;
-					
-					foreach($res as $data)
-					{
-						if($data[$unique_name] == $new_data[$unique_name]) continue;
-
-						$this->I->delete_unique($ufp, $data, $fields, $unique_name);
-						$this->I->insert_unique($ufp, $new_data, $fields, $unique_name, $data['__offset']);
-					}
-				}
-			}else if($need_update && !$ufp)
-			{
-				throw new Exception('Unique index file corrupt.');
-			}
+			/* LAST PHASE: Insert the data itself */
 			
 			//echo 'SUCC '.__LINE__.'<br>';
 			
@@ -1621,24 +1674,25 @@ class YNDb
 			
 			rewind($str_fp);
 			ftruncate($str_fp, 0);
-			fputs($str_fp, serialize(array($fields, $params, $meta)));
-			
-			$this->locked_tables_list[$name]['meta'] = $meta;
+			fwrite($str_fp, serialize(array($fields, $params, $meta)));
+			fflush($str_fp);
 		}
 		
+		/*
 		$rollback = !$success; // roll changes to the files back?
 		
 		foreach(explode(' ', 'pfp ifpi ifp ufp fp') as $v) if(isset($$v))
 		{
-			/*if($rollback) rfrollback($$v);
-			else          rfcommit($$v);*/
+			//if($rollback) rfrollback($$v);
+			//else          rfcommit($$v);
 			
 			fflush($$v);
 		}
+		*/
 		
 		$this->unlock_table($name);
 		
-		return $success ? ($res) : false;
+		return $res;
 	}
 }
 ?>
