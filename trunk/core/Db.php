@@ -34,6 +34,10 @@ class YNDb
 	const ROW_SPLIT    = 2;
 	const ROW_CONTINUE = 3;
 	
+	// constants for read_row
+	
+	const EOF          = -1;
+	
 	function set_error($err)
 	{
 		$uniqid = uniqid();
@@ -640,10 +644,11 @@ class YNDb
 		  * 4 bytes = ROW_LENGTH
 		  * 
 		  */
-		 
-		//echo 'read row at '.ftell($fp).'<br>';
 		
-		list(,$n) = unpack('c', fgetc($fp));
+		$first_byte = fgetc($fp);
+		if($first_byte === false) return self::EOF;
+		
+		list(,$n) = unpack('c', $first_byte);
 		
 		while($n==self::ROW_DELETED || $n==self::ROW_CONTINUE)
 		{
@@ -1107,6 +1112,8 @@ class YNDb
 				while(ftell($fp)<$end)
 				{
 					$t = $this->read_row($fields, $fp, $rtrim_strings);
+					
+					if($t == self::EOF) break;
 					
 					$fr = call_user_func($filt, $t, $limit, $cond);
 					
