@@ -1,6 +1,6 @@
 <?php
 /*
-  The PHP realization of generalized B-TREES (required for libindex),
+  The PHP implementation of generalized B-TREES with elements of FIXED SIZE,
 
   based on description at
   
@@ -197,7 +197,7 @@ class YNBTree_gen
         if($pos != 0)
         {
             ftruncate($this->fp, $pos); // cancel the allocation
-            return $this->set_error('Tree already not empty');
+            throw new Exception('Tree already not empty');
         }
 */
 
@@ -490,7 +490,7 @@ class YNBTree_gen
         {
             $data_arr = $this->read_block($fp, $meta, $pos);
             
-            if(!$data_arr) return $this->set_error('Read error at position '.$pos);
+            if(!$data_arr) throw new Exception('Read error at position '.$pos);
             
             list($N, $ISLEAF, $pointers, $values, $offsets) = $data_arr;
             
@@ -499,7 +499,7 @@ class YNBTree_gen
             
             if($i < $N && $val == $values[$i]) break; // ok, found the right row
             
-            if($ISLEAF) return $this->set_error('No such value'); // perhaps when there are no entries to delete it is not really an error, but for debug purposes it would be helpful
+            if($ISLEAF) throw new Exception('No such value'); // perhaps when there are no entries to delete it is not really an error, but for debug purposes it would be helpful
             
             $pos = $pointers[$i];
         }
@@ -542,7 +542,7 @@ class YNBTree_gen
             {
                 $data_arr_t = $this->read_block($fp, $meta, $pos_t); // temporary (current) data array
                 
-                if(!$data_arr_t) return $this->set_error('Read error at position '.$pos_t);
+                if(!$data_arr_t) throw new Exception('Read error at position '.$pos_t);
                 
                 list($N_t, $ISLEAF_t, $pointers_t, $values_t, $offsets_t) = $data_arr_t;
                 

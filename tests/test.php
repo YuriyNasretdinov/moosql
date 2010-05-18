@@ -82,7 +82,7 @@ switch(@$_REQUEST['act'])
 		{
 			try
 			{
-				$db -> insert(TABLE, array( 'data' => time().str_repeat('gh;dajfkaljfdlkjflsdaca ', 10), 'float' => M_PI*rand(), 'text' => 'проверка', 'LONGTEXT' => 'првоерка работы :)', 'rand' => mt_rand(0, 100), 'bad_rand' => $brnd = rand(0, 32), 'another_bad_rand' => $abrnd = rand(0,90), 'another_rand' => mt_rand()));
+				$db -> insert(TABLE, array( 'data' => time().str_repeat('gh;dajfkaljfdlkjflsdaca ', 10), 'float' => M_PI*rand(), 'text' => 'проверка', 'LONGTEXT' => 'првоерка работы :)', 'rand' => mt_rand(0, 1000000), 'bad_rand' => $brnd = rand(0, 32), 'another_bad_rand' => $abrnd = rand(0,90), 'another_rand' => mt_rand()));
 			}catch(Exception $e)
 			{
 				echo '<b>Exception:</b> '.$e->getMessage().'<br/>';
@@ -265,6 +265,13 @@ Last ins_id: '.$db->insert_id().'<br>
 		//echo '<p><b>ERROR (if not empty):</b> '.$db -> get_error();
 		
 		break;
+		
+	case 'mysql':
+		
+		// a test, involving MySQL to verify results
+		
+		break;
+	
 	case 'stress':
 		
 		set_time_limit(0);
@@ -280,7 +287,7 @@ Last ins_id: '.$db->insert_id().'<br>
 		echo 'Done.<br>';
 		
 		echo 'Creating table<br>';
-		$db -> create(TABLE, array( 'id' => 'InT', 'data' => 'TiNYTEXT', 'float' => 'DOUBLE', 'text' => 'TEXT', 'loNgText' => 'LONGTEXT', 'rand' => 'INT', 'bad_rand' => 'INT' ), array('AUTO_INCREMENT' => 'id', 'UNIQUE' => array('rand') , 'INDEX' => array('bad_rand')));
+		$db -> create(TABLE, array( 'id' => 'InT', 'data' => 'TiNYTEXT', 'float' => 'DOUBLE', 'text' => 'TEXT', 'loNgText' => 'LONGTEXT', 'rand' => 'TINYTEXT', 'bad_rand' => 'INT' ), array('AUTO_INCREMENT' => 'id', 'UNIQUE' => array('rand') , 'INDEX' => array('bad_rand')));
 		echo 'Done.<br>';
 		
 		echo 'Inserting a lot of values to the table. ';
@@ -353,7 +360,11 @@ Last ins_id: '.$db->insert_id().'<br>
 			foreach($res as $v)
 			{
 				$r = $db -> select(TABLE, array('col' => 'id,rand,bad_rand', 'cond' => 'rand = '.$v['rand']) );
-				if(sizeof($r) != 1) die('Invalid row count');
+				if(sizeof($r) != 1)
+				{
+					print_r($r);
+					die('Invalid row count');
+				}
 				if($r[0]['id'] != $v['id']) die('Invalid row selected');
 				if($r[0]['rand'] != $v['rand'] || $r[0]['bad_rand'] != $v['bad_rand']) die('Invalid data');
 			}
@@ -382,7 +393,8 @@ Last ins_id: '.$db->insert_id().'<br>
 		{
 			echo '<h1>Tier '.$J.'</h1>';
 			
-			$rows = 1000;
+			//$rows = 1000;
+			$rows = 10;
 			
 			$start = microtime(true);
 			

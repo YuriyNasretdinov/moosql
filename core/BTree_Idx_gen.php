@@ -5,7 +5,6 @@
 final class YNBTree_Idx_gen
 {
     protected $BTR = null;
-    protected $DB = null;
     
     /* $db_obj -- database object
        $blksz    -- block size (if unsure, use 2048 bytes)
@@ -16,21 +15,14 @@ final class YNBTree_Idx_gen
     function __construct($db_obj, $blksz, $itemsz, $pack_key)
     {
         $this->BTR = new YNBTree_gen($db_obj, $blksz, $itemsz, $pack_key);
-        $this->DB = $db_obj;
     }
     
     function __destruct()
     {
         $this->BTR = null;
-        $this->DB  = null;
     }
     
-    private function set_error($text)
-    {
-        return $this->DB->set_error($text);
-    }
-    
-    /* searches for $value and returns an array of offsets in data file */
+    /* searches for $value and returns a list of offsets in data file */
     
     function search($fp, $fpi, &$meta, $value)
     {
@@ -179,7 +171,7 @@ final class YNBTree_Idx_gen
             $old_res_item = $res_item;
         }
         
-        return $this->set_error('Consistency error: Key=>offset pair to delete not found');
+        throw new Exception('Consistency error: Key=>offset pair to delete not found');
     }
     
     function update($fp, $fpi, &$meta, $old_value, $old_offset, $new_value, $new_offset)

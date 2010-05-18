@@ -35,36 +35,8 @@ class YNDb
 	const ROW_CONTINUE = 3;
 	
 	// constants for read_row
-	
+
 	const EOF          = -1;
-	
-	function set_error($err)
-	{
-		$uniqid = uniqid();
-		
-		//if(substr($err,0,strlen('Duplicate')) != 'Duplicate')
-		/*
-		if(!isset($GLOBALS['argc'])) echo '
-			<div><b>'.$err.' (
-					<a href="#" onclick="var bl=document.getElementById(\''.$uniqid.'\'); if(bl.style.display==\'none\') { bl.style.display=\'\'; this.innerHTML=\'hide\'; }else{ bl.style.display=\'none\'; this.innerHTML=\'backtrace\'; }">
-						backtrace
-					</a>
-				
-					<pre id="'.$uniqid.'" style="display: none;">',print_r($tmp=debug_backtrace()),'</pre>
-				)</b></div>';
-		// if $GLOBALS['argc'] is set, then it almost 100% means that script is run from console, so no HTML here
-		else echo "YNDb error: $err\n";
-		*/
-		
-		$this->error = $err;
-		
-		return false;
-	}
-	
-	public function get_error()
-	{
-		return $this->error;
-	}
 	
 	/**
 	 * Connect to database with directory $d
@@ -168,6 +140,27 @@ class YNDb
 			throw new Exception('Invalid type(s): '.implode(', ', $inv).'. Valid are: '.implode(', ',$types));
 		}
 		
+		$row_size = 0;
+		$row_is_dynamic = false;
+		
+		$rsizes = array( 'BYTE' => 1, 'INT' => 4, 'TINYTEXT' => 1, 'TEXT' => 2, 'LONGTEXT' => 4, 'DOUBLE' => self::DBLSZ );
+		
+		foreach($types as $v)
+		{
+			$row_size += $rsizes[$v];
+			if($v == 'TINYTEXT' || $v == 'TEXT' || $v == 'LONGTEXT') $row_is_dynamic = true;
+		}
+		
+		if($row_is_dynamic && $row_size < 8)
+		{
+			// at least 8 bytes in a row are required for row splitting to work without corrupting other rows
+			// so, we add new "hidden" row
+			
+			// we should already have AUTO_INCREMENT field, so 4 + 4 gives us the required 8 bytes
+			
+			$types['__yndb_system_col'] = 'INT';
+		}
+		
 		if(empty($params['AUTO_INCREMENT']))
 		{
 			throw new Exception('Table must have AUTO_INCREMENT field!');
@@ -181,7 +174,7 @@ class YNDb
 			throw new Exception('AUTO_INCREMENT field must exist and have INT type');
 		}
 		
-		$supp_idx = array( 'BYTE', 'INT', 'DOUBLE' );
+		$supp_idx = array( 'BYTE', 'INT', 'DOUBLE', 'TINYTEXT', 'TEXT', 'LONGTEXT' );
 		
 		foreach(array('INDEX', 'UNIQUE') as $type)
 		{
@@ -253,7 +246,19 @@ class YNDb
 		fclose(fopen($this->dir.'/'.$name.'.dat','wb'));
 		fclose(fopen($this->dir.'/'.$name.'.pri', 'wb'));
 		
-		if($params['INDEX'])
+		// Index for *TEXT fields actually uses CRC32 and takes collisions into account
+		// But the extra .idx file is required for it in this case
+		
+		$need_extra_index_file = false;
+		
+		foreach($unique as $col_name)
+		{
+			$type = $fields[$col_name];
+			
+			if($type == 'TINYTEXT' || $type == 'TEXT' || $type == 'LONGTEXT') $need_extra_index_file = true;
+		}
+		
+		if(sizeof($index) || $need_extra_index_file)
 		{
 			fclose(fopen($this->dir.'/'.$name.'.idx', 'ab'));
 			fclose(fopen($this->dir.'/'.$name.'.btr', 'ab'));
@@ -261,7 +266,7 @@ class YNDb
 			$fpi = fopen($this->dir.'/'.$name.'.idx', 'r+b');
 			$fp = fopen($this->dir.'/'.$name.'.btr', 'r+b');
 			
-			foreach($params['INDEX'] as $field_name)
+			foreach($index as $field_name)
 			{
 				$class = $this->I->idx_type_to_classname($fields[$field_name]);
 				
@@ -275,18 +280,28 @@ class YNDb
 			fclose($fpi);
 		}
 		
-		if($params['UNIQUE'])
+		if(sizeof($unique))
 		{
 			fclose(fopen($this->dir.'/'.$name.'.btr', 'ab'));
 		
 			$fp = fopen($this->dir.'/'.$name.'.btr', 'r+b');
 			
-			foreach($params['UNIQUE'] as $field_name)
+			foreach($unique as $field_name)
 			{
 				$class = $this->I->uni_type_to_classname($fields[$field_name]);
 				
 				$meta[$field_name] = array();
-				$this->I->$class->create($fp, $meta[$field_name]);
+				
+				if($class != 'BTR_str')
+				{
+					$this->I->$class->create($fp, $meta[$field_name]);
+				}else
+				{
+					// $fpi should be already opened
+					$this->I->$class->create($fp, $fpi, $meta[$field_name]);
+				}
+				
+				
 			}
 			
 			unset($btr);
@@ -342,7 +357,12 @@ class YNDb
 			$this->locked_tables_locks_count[$name] = 1;
 		}else
 		{
-			if($excl) flock_cached($lpath, 'r+b', LOCK_EX); // table can be previously locked in shared mode
+			// the next line should be never executed as it can lead to data loss
+			if($excl)
+			{
+				throw new Exception('Relocking the file: possible data loss');
+				flock_cached($lpath, 'r+b', LOCK_EX); // table can be previously locked in shared mode
+			}
 			
 			$this->locked_tables_locks_count[$name]++;
 		}
@@ -439,13 +459,18 @@ class YNDb
 			/* FIRST, check for UNIQUE fields consistency */
 			$need_unique_insert = sizeof($unique);
 			
+			if($need_unique_insert)
+			{
+				@$ufpi = fopen_cached($this->dir.'/'.$name.'.idx', 'r+b');
+			}
+			
 			if($need_unique_insert && ($ufp = fopen_cached($this->dir.'/'.$name.'.btr', 'r+b')))
 			{
 				foreach($unique as $unique_name)
 				{
 					if(!isset($data[$unique_name])) $data[$unique_name] = 0;
 					
-					if($this->I->search_unique($ufp, $data, $fields, $unique_name) !== false)
+					if($this->I->search_unique($ufp, $ufpi, $fp, $data[$unique_name], $fields, $unique_name) !== false)
 					{
 						throw new Exception('Duplicate key '.$data[$unique_name].' for '.$unique_name);
 					}
@@ -460,7 +485,9 @@ class YNDb
 			{				
 				if(!$pfp = fopen_cached($this->dir.'/'.$name.'.pri', 'r+b')) throw new Exception('Primary index file is corrupt.');
 				
-				if(isset($data[$aname]) && $data[$aname] < $acnt) // allow to insert values that do not duplicate existing ones and have lower that $acnt values
+				// allow to insert values that do not duplicate existing ones and have lower that $acnt values
+				
+				if(isset($data[$aname]) && $data[$aname] < $acnt)
 				{
 					$cnt = $data[$aname];
 					
@@ -478,13 +505,13 @@ class YNDb
 			
 			/* optimization for UNIQUE key field */
 			$st = microtime(true);
-			if($need_unique_insert /* name of unique field. only INT type! */)
+			if($need_unique_insert)
 			{
 				// we remove the check for errors as we do not use rfio anymore and cannot revert changes
 				
 				foreach($unique as $unique_name)
 				{
-					$this->I->insert_unique($ufp,$data,$fields,$unique_name,$row_start);
+					$this->I->insert_unique($ufp,$ufpi,$fp,$data,$fields,$unique_name,$row_start);
 				}
 			}
 			$GLOBALS['unique_time'] += microtime(true)-$st;
@@ -549,7 +576,7 @@ class YNDb
 			
 			if(!fputs($fp, $ins, strlen($ins)))
 			{
-				throw new Exception('Cannot write data file.');
+				throw new Exception('Cannot write data file. The database is left in an inconsistent state, please run repair tools.');
 			}
 		
 		}catch(Exception $e)
@@ -618,7 +645,10 @@ class YNDb
 		return !isset($err);
 	}
 	
-	protected function read_row($fields, $fp, $rtrim_strings = true)
+	/* The next function must be protected, but is used in BTree_str to ensure consistency of string indexes (should be reimplemented in future) */
+	
+	/*protected */
+	function read_row($fields, $fp, $rtrim_strings = true)
 	{	
 		/*
 		 * the row format:
@@ -641,14 +671,15 @@ class YNDb
 		  * 
 		  * 1 byte  = self::ROW_CONTINUE
 		  * 4 bytes = OFFSET_OF_NEXT_PART -- in case it is the end of the chain it has value "-1"
-		  * 4 bytes = ROW_LENGTH
+		  * 4 bytes = CHUNK_LENGTH
 		  * 
 		  */
 		
 		$first_byte = fgetc($fp);
 		if($first_byte === false) return self::EOF;
-		
+
 		list(,$n) = unpack('c', $first_byte);
+
 		
 		while($n==self::ROW_DELETED || $n==self::ROW_CONTINUE)
 		{
@@ -664,7 +695,7 @@ class YNDb
 			
 			$first_byte = fgetc($fp);
 			if($first_byte === false) return self::EOF;
-			
+
 			list(,$n) = unpack('c', $first_byte);
 		}
 		
@@ -867,6 +898,8 @@ class YNDb
 	
 	public function select($name, $crit = array())
 	{
+		static $sort_func = array();
+		
 		if(!$this->lock_table($name)) return false;
 		$str_res = $this->locked_tables_list[$name];
 		
@@ -1064,10 +1097,25 @@ class YNDb
 				$opt = 'Using UNIQUE';
 				
 				$ufp = fopen_cached($this->dir.'/'.$name.'.btr', 'r+b');
+				$ifpi = fopen_cached($this->dir.'/'.$name.'.idx', 'r+b');
 				
+				$tmp = $this->I->search_unique($ufp, $ifpi, $fp, $c[2], $fields, $c[0]);
+				
+				/*
 				$class = $this->I->uni_type_to_classname($fields[$c[0]]);
 				
-				$tmp = $this->I->$class->fsearch($ufp, $meta[$c[0]], $c[2]);
+				if($class != 'BTR_str')
+				{
+					$tmp = $this->I->$class->fsearch($ufp, $meta[$c[0]], $c[2]);
+				}else
+				{
+					
+					
+					$tmp = $this->I->$class->search($ufp, $ifp, $meta[$c[0]], $c[2]);
+				}
+				*/
+				
+				
 				
 				if($tmp !== false)
 				{
@@ -1174,8 +1222,18 @@ class YNDb
 				break;
 		}
 		
+		/* protection from using too much memory:
+		   PHP does not reclaim memory for unreferenced
+		   and unused functions that were created runtime
+		*/
+		
+		if(!isset($sort_func[$code]))
+		{
+			$sort_func[$code] = create_function('$arg1,$arg2','return '.$code.';');
+		}
+		
 		//$start = microtime(true);
-		usort($res, create_function('$arg1,$arg2','return '.$code.';'));
+		usort($res, $sort_func[$code]);
 		//echo '<br>usort: '.(microtime(true) - $start).' sec ('.sizeof($res).' elements)<br>';
 		
 		return array_slice($res, $limit[0], min($limit[1], sizeof($res) - $limit[0]));
@@ -1212,6 +1270,8 @@ class YNDb
 			
 			if($res === false) break;
 			
+			$fp = fopen_cached($this->dir.'/'.$name.'.dat', 'r+b');
+			
 			// these operations should not fail, so if they do for some reason,
 			// perhaps something went so terribly wrong, that a simple "rollback" will not help
 			
@@ -1219,18 +1279,15 @@ class YNDb
 			
 			if($pfp = fopen_cached($this->dir.'/'.$name.'.pri', 'r+b'))
 			{
-				//$succ = true;
 				foreach($res as $data) $this->I->delete_primary($pfp, $data, $aname);
-				//$succ1 = true;//fclose($pfp);
-				//$succ = $succ && $succ1;
-				
-				//if(!$succ) break; // either problem with fclose or with delete_primary, delete_primary should already have set an error
 			}else
 			{
 				throw new Exception('Primary index file corrupt.');
 			}
 			
-			if(sizeof($index) && ($ifpi = fopen_cached($this->dir.'/'.$name.'.idx', 'r+b')) && ($ifp  = fopen_cached($this->dir.'/'.$name.'.btr', 'r+b')))
+			$ifpi = fopen_cached($this->dir.'/'.$name.'.idx', 'r+b');
+			
+			if(sizeof($index) && $ifpi && ($ifp  = fopen_cached($this->dir.'/'.$name.'.btr', 'r+b')))
 			{
 				foreach($index as $index_name)
 				{
@@ -1246,14 +1303,14 @@ class YNDb
 			{
 				foreach($unique as $unique_name)
 				{
-					foreach($res as $data) $this->I->delete_unique($ufp, $data, $fields, $unique_name);
+					foreach($res as $data) $this->I->delete_unique($ufp, $ifpi, $fp, $data, $fields, $unique_name);
 				}
 			}else if(sizeof($unique))
 			{
 				throw new Exception('Unique index file corrupt.');
 			}
 			
-			if($fp = fopen_cached($this->dir.'/'.$name.'.dat', 'r+b'))
+			if($fp)
 			{
 				foreach($res as $data)
 				{
@@ -1274,8 +1331,8 @@ class YNDb
 						list(,$next_off,$row_length) = unpack('l2', fread($fp, 8));
 						$next_off = ftell($fp) + $row_length;
 						
-						// do not mark ROW_CONTINUE as deleted -- they will remain
-						// the space will be just wasted, yes, I know
+						// Do not mark ROW_CONTINUE as deleted -- they will remain.
+						// The space will be just wasted, yes, I know
 					}else
 					{
 						throw new Exception('Unknown row type '.$n.' for deletion, perhaps the table is corrupt.');
@@ -1309,7 +1366,7 @@ class YNDb
 			
 			rewind($str_fp);
 			ftruncate($str_fp, 0);
-			fputs($str_fp, serialize(array($fields, $params, $meta)));
+			fwrite($str_fp, serialize(array($fields, $params, $meta)));
 			
 			$this->locked_tables_list[$name]['meta'] = $meta;
 		}
@@ -1340,6 +1397,10 @@ class YNDb
 		
 		$this->I->meta = $meta;
 		
+		/* The reason why we rtrim all strings in new data is simple -- index for
+		   *TEXT fields returns rtrimmed strings */
+		foreach($new_data as $k=>$v) $new_data[$k] = rtrim($v);
+		
 		try
 		{
 			$res = $this->select( $name, $crit, $str_res );
@@ -1351,9 +1412,16 @@ class YNDb
 			
 			if($res === false) break;
 			
-			/* PHASE 0: Check that row update will not cause "Duplicate key errors"  */
+			$fp = fopen_cached($this->dir.'/'.$name.'.dat', 'r+b');
+			
+			/* PHASE 0: Check that row update will not cause "Duplicate key" errors for UNIQUE index  */
 			
 			$need_unique_update = sizeof($unique) && sizeof( array_intersect($unique,array_keys($new_data)) );
+			
+			if($need_unique_update)
+			{
+				@$ufpi = fopen_cached($this->dir.'/'.$name.'.idx', 'r+b');
+			}
 			
 			if($need_unique_update && ($ufp = fopen_cached($this->dir.'/'.$name.'.btr', 'r+b')))
 			{
@@ -1369,11 +1437,11 @@ class YNDb
 					
 					*/
 					
-					$srch = $this->I->search_unique($ufp, $new_data, $fields, $unique_name);
+					$srch = $this->I->search_unique($ufp, $ufpi, $fp, $new_data[$unique_name], $fields, $unique_name);
 					
 					if(sizeof($res) > 1 || (sizeof($res) == 1 && $res[0][$unique_name] != $new_data[$unique_name] && $srch !== false))
 					{
-						throw new Exception('Duplicate key '.$new_data[$unique_name].' for '.$unique_name);
+						throw new Exception('Duplicate key "'.$new_data[$unique_name].'" for '.$unique_name);
 					}
 				}
 			}else if($need_unique_update && !$ufp)
@@ -1381,7 +1449,7 @@ class YNDb
 				throw new Exception('Unique index file corrupt.');
 			}
 			
-			/* PHASE 1: Check for primary index & insert new value if needed */
+			/* PHASE 1: Check for PRIMARY INDEX & insert new value if needed */
 			
 			if(isset($new_data[$aname]) && $pfp = fopen_cached($this->dir.'/'.$name.'.pri', 'r+b'))
 			{
@@ -1389,7 +1457,10 @@ class YNDb
 				
 				foreach($res as $data)
 				{
-					if(isset($new_data[$aname]) && $new_data[$aname] < $acnt && $new_data[$aname] != $data[$aname]) // allow to insert values that do not duplicate existing ones and have lower that $acnt values
+					/* allow to insert values that do not duplicate
+					   existing ones and have lower than $acnt values */
+					
+					if(isset($new_data[$aname]) && $new_data[$aname] < $acnt && $new_data[$aname] != $data[$aname])
 					{
 						$cnt = $new_data[$aname];
 						
@@ -1401,10 +1472,10 @@ class YNDb
 							fseek($pfp, 4*$data[$aname], SEEK_SET);
 							list(,$newoff) = unpack('l', fread($pfp, 4));
 							fseek($pfp, -4, SEEK_CUR);
-							fputs($pfp, pack('l', -1));
+							fwrite($pfp, pack('l', -1));
 							
 							fseek($pfp, 4*$cnt, SEEK_SET);
-							fputs($pfp, pack('l', $newoff));
+							fwrite($pfp, pack('l', $newoff));
 						}else
 						{
 							throw new Exception('Duplicate primary key value');
@@ -1430,7 +1501,7 @@ class YNDb
 					
 					foreach($res as $data)
 					{
-						if($data[$unique_name] == $new_data[$unique_name]) continue;
+						if(rtrim($data[$unique_name]) == $new_data[$unique_name]) continue;
 
 						$this->I->delete_unique($ufp, $data, $fields, $unique_name);
 						$this->I->insert_unique($ufp, $new_data, $fields, $unique_name, $data['__offset']);
@@ -1452,7 +1523,7 @@ class YNDb
 					
 					foreach($res as $data)
 					{
-						if($data[$index_name] == $new_data[$index_name]) continue; // no need to update it :))
+						if(rtrim($data[$index_name]) == $new_data[$index_name]) continue; // no need to update it :))
 
 						$this->I->delete_index($ifp, $ifpi, $data, $fields, $index_name, $data['__offset']);
 						$this->I->insert_index($ifp, $ifpi, $new_data, $fields, $index_name, $data['__offset']);
@@ -1471,7 +1542,7 @@ class YNDb
 			
 			//echo 'SUCC '.__LINE__.'<br>';
 			
-			if($fp = fopen_cached($this->dir.'/'.$name.'.dat', 'r+b'))
+			if($fp)
 			{
 				foreach($res as $data_key => $data)
 				{
@@ -1486,7 +1557,9 @@ class YNDb
 					foreach($fields as $k=>$v)
 					{
 						@$od = $data[$k];
-						$d = isset($new_data[$k]) ? $new_data[$k] : false; // already checked for correctness of the operation
+						
+						// already checked for correctness of the operation
+						$d = isset($new_data[$k]) ? $new_data[$k] : false;
 						
 						switch($v)
 						{
@@ -1518,7 +1591,7 @@ class YNDb
 										//$d = substr($d, 0, strlen($od));
 										$need_row_split = true;
 									}
-									if(strlen($d) < strlen($od)) $d .= str_repeat(' ', strlen($od) - strlen($d)); // should not add less, as it can lead to row corruption
+									if(strlen($d) < strlen($od)) $d .= str_repeat(' ', strlen($od) - strlen($d)); // must not add less, as it can lead to row corruption
 									$ins .= pack($length, strlen($d));
 									$ins .= $d;
 								}
@@ -1540,7 +1613,7 @@ class YNDb
 						{
 							//echo 'No need to split row<br>';
 							
-							fwrite($fp, $ins, strlen($ins)); // 0 bytes written means an error too
+							fwrite($fp, $ins, strlen($ins));
 						}else
 						{
 							//echo 'Need to split row<br>';
@@ -1553,20 +1626,20 @@ class YNDb
 							$length = ftell($fp) - $old_pos - 1; // 1 byte which indicates row state is not counted
 							
 							// the point is that we do not want to do the split row operation often,
-							// so we leave some space (either 32 bytes or excess size),
-							// choosing the highest value
+							// so we leave some space (either 32 bytes or excess size,
+							// choosing the highest value)
 							
 							// length in the original row will be decreased by 8 bytes
 							// as we write OFFSET_NEXT_PART and ROW_LENGTH first and then data
-							$add_length = strlen($ins) - $length + 8;
-							$spare_length = max( 32, ((strlen($ins) - $length)) );
+							$tail_length = strlen($ins) - $length + 8;
+							$spare_length = max( 32, strlen($ins) - $length );
 							
 							// first, write the tail
 							fseek($fp, 0, SEEK_END);
 							$next_off = ftell($fp);
 							
-							// write TYPE, OFFSET_OF_NEXT_PART = -1
-							fwrite($fp, pack('cll', self::ROW_CONTINUE, -1, $add_length + $spare_length));
+							// write TYPE, OFFSET_OF_NEXT_PART = -1, CHUNK_LENGTH
+							fwrite($fp, pack('cll', self::ROW_CONTINUE, -1, $tail_length + $spare_length));
 							
 							// the thing is that actual data in the original row will become shorter
 							// by 8 bytes as we write OFFSET_NEXT_PART and ROW_LENGTH first and then data

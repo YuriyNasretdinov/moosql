@@ -38,11 +38,6 @@ final class MooDataInterface extends YNDb
 		return parent::__destruct();
 	}
 	
-	function set_error($err)
-	{
-		return parent::set_error('DataInterface (internal) error: '.$err);
-	}
-	
 	// checks if table $name exists
 	// one should use getTableStructure() if he wants to both check if the table exists and get the table structure
 	
