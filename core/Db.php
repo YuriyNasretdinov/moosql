@@ -662,7 +662,10 @@ class YNDb
 				fseek($fp, $row_length, SEEK_CUR);
 			}
 			
-			list(,$n) = unpack('c', fgetc($fp));
+			$first_byte = fgetc($fp);
+			if($first_byte === false) return self::EOF;
+			
+			list(,$n) = unpack('c', $first_byte);
 		}
 		
 		$t = array();
