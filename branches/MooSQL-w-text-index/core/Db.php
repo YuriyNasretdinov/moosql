@@ -1291,7 +1291,7 @@ class YNDb
 			{
 				foreach($index as $index_name)
 				{
-					foreach($res as $data) $this->I->delete_index($ifp, $ifpi, $data, $fields, $index_name, $data['__offset']);
+					foreach($res as $data) $this->I->delete_index($ifp, $ifpi, $fp, $data, $fields, $index_name, $data['__offset']);
 				}
 				
 			}else if(sizeof($index))

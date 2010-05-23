@@ -4,6 +4,8 @@ header('Content-type: text/html; charset="UTF-8"');
 error_reporting(E_ALL);
 ini_set('display_errors', 'On');
 
+//phpinfo();
+
 include('../Client.php');
 
 if(!isset($_REQUEST['act']) && isset($argv[1])) $_REQUEST['act'] = $argv[1];
@@ -41,7 +43,7 @@ define('TABLE', 'test3');
 
 echo '<h1>Choose operation:</h1>';
 
-foreach(explode(' ', 'create insert select delete update stress clean') as $v)
+foreach(explode(' ', 'create insert select delete update stress text-index clean') as $v)
 {
 	echo '<a href="?act='.$v.'"><b>'.strtoupper($v).'</b></a> ';
 }
@@ -287,7 +289,7 @@ Last ins_id: '.$db->insert_id().'<br>
 		echo 'Done.<br>';
 		
 		echo 'Creating table<br>';
-		$db -> create(TABLE, array( 'id' => 'InT', 'data' => 'TiNYTEXT', 'float' => 'DOUBLE', 'text' => 'TEXT', 'loNgText' => 'LONGTEXT', 'rand' => 'TINYTEXT', 'bad_rand' => 'INT' ), array('AUTO_INCREMENT' => 'id', 'UNIQUE' => array('rand') , 'INDEX' => array('bad_rand')));
+		$db -> create(TABLE, array( 'id' => 'InT', 'data' => 'TiNYTEXT', 'float' => 'DOUBLE', 'text' => 'TEXT', 'loNgText' => 'LONGTEXT', 'rand' => 'TEXT', 'bad_rand' => 'INT' ), array('AUTO_INCREMENT' => 'id', 'UNIQUE' => array('rand') , 'INDEX' => array('bad_rand')));
 		echo 'Done.<br>';
 		
 		echo 'Inserting a lot of values to the table. ';
@@ -393,8 +395,8 @@ Last ins_id: '.$db->insert_id().'<br>
 		{
 			echo '<h1>Tier '.$J.'</h1>';
 			
-			//$rows = 1000;
-			$rows = 10;
+			$rows = 1000;
+			//$rows = 10;
 			
 			$start = microtime(true);
 			
@@ -403,7 +405,9 @@ Last ins_id: '.$db->insert_id().'<br>
 				$rand = (int)hexdec(substr(md5($i), 0, 8));
 				$bad_rand =  $i % 37 % 31;
 				
+				//ob_start();
 				$db -> insert(TABLE, $dat = array( 'data' => str_repeat(md5($i).' ', 10), 'float' => M_PI*$i, 'text' => sha1($i), 'LONGTEXT' => str_repeat(sha1($i).md5($i).' ', 100), 'rand' => $rand, 'bad_rand' => $bad_rand));
+				//ob_end_clean();
 				
 				array_change_key_case($dat, CASE_LOWER);
 				
@@ -519,6 +523,50 @@ Last ins_id: '.$db->insert_id().'<br>
 		}
 		
 		echo '<script>alert("All tests passed ['.implode(',',$times).', total '.round(microtime(true) - START, 1).' sec]!");</script>';
+		
+		break;
+	case 'text-index':
+	
+		set_time_limit(0);
+		ob_implicit_flush(true);
+		
+		echo 'Removing all previous tables.<br/>';
+		system('rm -r ./data');
+		mkdir('./data');
+		echo 'Done.<br/>';
+		
+		$test_data = array();
+		
+		define( 'ELEMS', 10 );
+		
+		for($i = 0; $i < ELEMS; $i++)
+		{
+			$test_data[] = md5( mt_rand() );
+		}
+		
+		$db->create( 'test', array( 'ID' => 'INT', 'login' => 'TINYTEXT' ), array( 'AUTO_INCREMENT' => 'id', 'UNIQUE' => array( 'login' ) ) );
+		
+		//ob_start();
+		
+		foreach($test_data as $v)
+		{
+			$db->insert( 'test', array( 'login' => $v ) );
+		}
+		
+		//ob_end_clean();
+		
+		print_r($test_data);
+		
+		print_r( $db->select( 'test' ) );
+		
+		shuffle($test_data);
+		
+		foreach($test_data as $v)
+		{
+			echo 'searching for '.$v.'<br/>';
+			
+			print_r( $db->select( 'test', array( 'cond' => 'login = '.$v ) ) );
+		}
 		
 		break;
 	case 'clean':
