@@ -168,7 +168,7 @@ final class YNIndex
 	
 	*/
 	
-	function delete_index($ufp, $ifp, $data, $fields, $index, $row_start)
+	function delete_index($ufp, $ifp, $fp, $data, $fields, $index, $row_start)
 	{
 		$value = $data[$index];
 		$offset = $row_start;

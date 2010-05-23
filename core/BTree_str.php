@@ -48,13 +48,36 @@ class YNBTree_str
 	
 	function search($ufp, $ifp, $fp, $fields, $field_name, &$meta, $value)
 	{
+		//echo '<div><b>search:</b><pre>', !print_r( func_get_args() ), '</pre></div>';
+		/*
+		$trace = debug_backtrace(false); // without "object"
+		
+		echo '<div><b>search:</b><br/>';
+		
+		foreach($trace as $k=>$v)
+		{
+			echo '<div>'.$v['file'].':'.$v['line'].'</div>';
+			unset($trace[$k]['object']);
+		}
+		
+		echo '<div>more info: <!-- ',!print_r($trace),' --> </div>';
+		
+		echo '<pre>', !print_r( func_get_args() ), '</pre>';
+		
+		echo '</div>';
+		*/
+		
 		$value = rtrim($value);
 		
 		$v = crc32($value);
 		
+		//echo '<b>search</b> '.$v.'<br/>';
+		
 		$res_list = $this->BTRI->search($ufp, $ifp, $meta, $v);
 		
 		if(!$res_list || !sizeof($res_list)) return false;
+		
+		//print_r($res_list);
 		
 		foreach($res_list as $offset)
 		{
@@ -62,7 +85,12 @@ class YNBTree_str
 			
 			$res = $this->DB->read_row($fields, $fp);
 			
-			if($res[$field_name] == $value) return $offset;
+			if($res[$field_name] == $value) 
+			{
+				//print_r($res);
+				
+				return array($value, $offset);
+			}
 		}
 		
 		return false; // nothing found :(
@@ -77,14 +105,20 @@ class YNBTree_str
 	{
 		if($this->search($ufp, $ifp, $fp, $fields, $field_name, $meta, $value) !== false) throw new Exception('Duplicate key for '.$field_name);
 		
-		return $this->BTRI->insert($ufp, $ifp, $meta, rtrim($value), $offset);
+		$value = rtrim($value);
+		
+		$v = crc32($value);
+		
+		//echo '<b>insert</b> '.$v.'<br/>';
+		
+		return $this->BTRI->insert($ufp, $ifp, $meta, $v, $offset);
 	}
 	
 	function delete($ufp, $ifp, $fp, $fields, $field_name, &$meta, $value)
 	{
 		if( false === ($offset = $this->search($ufp, $ifp, $fp, $fields, $field_name, $meta, $value)) ) return true;
 		
-		return $this->BTRI->delete($ufp, $ifp, $meta, rtrim($value), $offset);
+		return $this->BTRI->delete($ufp, $ifp, $meta, crc32(rtrim($value)), $offset);
 	}
 	
 	// UPDATE is actually never called
