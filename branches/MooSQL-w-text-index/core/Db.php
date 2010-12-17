@@ -12,12 +12,18 @@ require YNDB_HOME.'/Index.php';
 define('YNDB_MAXLEN', pow(2,20)); // maximum length of data in bytes (default 1 MB)
 define('YNDB_DBLSZ',strlen(pack('d', M_PI))); // size of DOUBLE (should be 8 bytes, but it is not strictly obligatory)
 
+/**
+ * 
+ *
+ * @property YNIndex $I Index instance. Creates public Btree_gen and Btree_Idx_gen instances on construction
+ */
+
 class YNDb
 {
 	protected $dir = ''; // data directory
 	protected $error = '';
 	protected $ins_id = '';
-	protected $I = null; /* Index instance. Creates public Btree_gen and Btree_Idx_gen instances on construction */
+	protected $I = null;
 	
 	public static $instances = array(  ); // instances count for each directory
 	
@@ -145,20 +151,25 @@ class YNDb
 		
 		$rsizes = array( 'BYTE' => 1, 'INT' => 4, 'TINYTEXT' => 1, 'TEXT' => 2, 'LONGTEXT' => 4, 'DOUBLE' => self::DBLSZ );
 		
-		foreach($types as $v)
+		foreach($fields as $v)
 		{
 			$row_size += $rsizes[$v];
 			if($v == 'TINYTEXT' || $v == 'TEXT' || $v == 'LONGTEXT') $row_is_dynamic = true;
 		}
-		
+
+		//var_dump($row_is_dynamic);
+		//var_dump($row_size);
+
 		if($row_is_dynamic && $row_size < 8)
 		{
 			// at least 8 bytes in a row are required for row splitting to work without corrupting other rows
 			// so, we add new "hidden" row
 			
 			// we should already have AUTO_INCREMENT field, so 4 + 4 gives us the required 8 bytes
-			
-			$types['__yndb_system_col'] = 'INT';
+
+			//echo 'Create system columns';
+
+			$fields['__yndb_system_col'] = 'INT';
 		}
 		
 		if(empty($params['AUTO_INCREMENT']))
@@ -174,7 +185,8 @@ class YNDb
 			throw new Exception('AUTO_INCREMENT field must exist and have INT type');
 		}
 		
-		$supp_idx = array( 'BYTE', 'INT', 'DOUBLE', 'TINYTEXT', 'TEXT', 'LONGTEXT' );
+		$supp_idx = array( 'UNIQUE' => array('BYTE', 'INT', 'DOUBLE', 'TINYTEXT', 'TEXT', 'LONGTEXT'),
+		                   'INDEX'  => array('BYTE', 'INT', 'DOUBLE'));
 		
 		foreach(array('INDEX', 'UNIQUE') as $type)
 		{
@@ -188,9 +200,9 @@ class YNDb
 			
 			foreach($params[$type] as $field_name)
 			{
-				if(@!in_array($fields[$field_name], $supp_idx))
+				if(@!in_array($fields[$field_name], $supp_idx[$type]))
 				{
-					throw new Exception($type.'('.$field_name.') field must exist and have one of the following types: '.implode(',', $supp_idx));
+					throw new Exception($type.'('.$field_name.') field must exist and have one of the following types: '.implode(',', $supp_idx[$type]));
 				}
 			}
 		}
@@ -233,7 +245,10 @@ class YNDb
 		
 		$meta = array();
 		
-		if(!@$lock_fp=fopen($this->dir.'/'.$name.'.lock', 'x')) throw new Exception('The table already exists -- the lock file is present.');
+		if(!@$lock_fp=fopen($this->dir.'/'.$name.'.lock', 'x'))
+		{
+			throw new Exception('The table already exists -- the lock file is present.');
+		}
 		
 		// yes, someone could try to perform an insert/update/delete method in between the lines above and below,
 		// (I mean HERE :), in this comment block )
@@ -257,6 +272,8 @@ class YNDb
 			
 			if($type == 'TINYTEXT' || $type == 'TEXT' || $type == 'LONGTEXT') $need_extra_index_file = true;
 		}
+
+		//echo "need extra index file: $need_extra_index_file<br/>\n";
 		
 		if(sizeof($index) || $need_extra_index_file)
 		{
@@ -277,7 +294,7 @@ class YNDb
 			
 			unset($btri);
 			fclose($fp);
-			fclose($fpi);
+			if(!$need_extra_index_file) fclose($fpi);
 		}
 		
 		if(sizeof($unique))
@@ -306,6 +323,8 @@ class YNDb
 			
 			unset($btr);
 			fclose($fp);
+
+			if($need_extra_index_file) fclose($fpi);
 		}
 		
 		$params['AUTO_INCREMENT']['cnt'] = 0;
@@ -402,6 +421,57 @@ class YNDb
 		
 		
 	}
+
+	public function drop($name, $allow_nonexistent = true)
+	{
+		if(isset($this->locked_tables_list[$name]))
+		{
+			throw new Exception('Cannot drop the table that is locked, please unlock it first.');
+		}
+
+		$suffixes = array( '.str', '.dat', '.lock', '.pri', '.idx', '.btr' );
+
+		global $fopen_cache;
+
+		$files = array();
+		foreach($suffixes as $v)
+		{
+			$files[] = $this->dir.'/'.$name.$v;
+		}
+
+		clearstatcache();
+		if(!$allow_nonexistent && !file_exists($files[0]))
+		{
+			throw new Exception('Could not find the file with table structure.
+				Perhaps table does not exist or the files of that table have
+				been deleted');
+		}
+
+		foreach($fopen_cache as $k => $struct)
+		{
+			foreach($files as $f)
+			{
+				if(substr($k, 0, strlen($f)+1) == $f.':')
+				{
+					@fclose($struct['fp']);
+					unset($fopen_cache[$k]);
+				}
+			}
+		}
+
+		foreach($files as $f)
+		{
+			if(file_exists($f))
+			{
+				if(!unlink($f))
+				{
+					throw new Exception('Could not remove table -- probably, access is denied.
+						See warnings on the screen or at the log file');
+				}
+			}
+		}
+
+	}
 	
 	protected function read_struct($str_fp)
 	{
@@ -436,6 +506,7 @@ class YNDb
 	{
 		$st = microtime(true);
 		if(!$this->lock_table($name, true)) return false;
+		if(!isset($GLOBALS['lock_time'])) $GLOBALS['lock_time'] = 0;
 		$GLOBALS['lock_time'] += microtime(true)-$st;
 		
 		$str_res = $this->locked_tables_list[$name];
@@ -450,7 +521,42 @@ class YNDb
 			fseek($fp, 0, SEEK_END);
 			$row_start = ftell($fp);
 			
-			
+			/* ensuring results correctness */
+			$ins = pack('x'); /* data for insertion to db */
+
+			foreach($fields as $k=>$v)
+			{
+				if($aname!=$k) @$d = $data[$k];
+				else $d = $acnt;
+
+				switch($v)
+				{
+					case'BYTE':
+						$ins .= pack('c', $d);
+						break;
+					case'INT':
+						$ins .= pack('l', $d);
+						break;
+					case'TINYTEXT':
+						if(strlen($d) > 255) $data[$k] = $d = substr($d, 0, 255);
+						$ins .= pack('C', strlen($d));
+						$ins .= $d;
+						break;
+					case'TEXT':
+						if(strlen($d) > 65535) $data[$k] = $d = substr($d, 0, 65535);
+						$ins .= pack('S', strlen($d));
+						$ins .= $d;
+						break;
+					case'LONGTEXT':
+						if(strlen($d) > self::MAXLEN) $data[$k] = $d = substr($d, 0, self::MAXLEN);
+						$ins .= pack('l', strlen($d));
+						$ins .= $d;
+						break;
+					case'DOUBLE':
+						$ins .= pack('d', $d);
+						break;
+				}
+			}
 			
 			/* optimization for PRIMARY INDEX field (id) */
 			
@@ -514,6 +620,7 @@ class YNDb
 					$this->I->insert_unique($ufp,$ufpi,$fp,$data,$fields,$unique_name,$row_start);
 				}
 			}
+			if(!isset($GLOBALS['unique_time'])) $GLOBALS['unique_time'] = 0;
 			$GLOBALS['unique_time'] += microtime(true)-$st;
 			
 			/* optimization for INDEX field */
@@ -536,43 +643,10 @@ class YNDb
 				}
 				*/
 			}
+			if(!isset($GLOBALS['index_time'])) $GLOBALS['index_time'] = 0;
 			$GLOBALS['index_time'] += microtime(true)-$st;
 			
-			$ins = pack('x'); /* data for insertion to db */
 			
-			foreach($fields as $k=>$v)
-			{
-				if($aname!=$k) @$d = $data[$k];
-				else $d = $acnt;
-				
-				switch($v)
-				{
-					case'BYTE':
-						$ins .= pack('c', $d);
-						break;
-					case'INT':
-						$ins .= pack('l', $d);
-						break;
-					case'TINYTEXT':
-						if(strlen($d) > 255) $d = substr($d, 0, 255);
-						$ins .= pack('C', strlen($d));
-						$ins .= $d;
-						break;
-					case'TEXT':
-						if(strlen($d) > 65535) $d = substr($d, 0, 65535);
-						$ins .= pack('S', strlen($d));
-						$ins .= $d;
-						break;
-					case'LONGTEXT':
-						if(strlen($d) > YNDB_MAXLEN) $d = substr($d, 0, YNDB_MAXLEN);
-						$ins .= pack('l', strlen($d));
-						$ins .= $d;
-						break;
-					case'DOUBLE':
-						$ins .= pack('d', $d);
-						break;
-				}
-			}
 			
 			if(!fputs($fp, $ins, strlen($ins)))
 			{
@@ -623,7 +697,7 @@ class YNDb
 			//$this->locked_tables_list[$name]['meta'] = $meta;
 		}
 		
-		foreach(explode(' ', 'pfp ifpi ifp ufp fp') as $v)
+		foreach(explode(' ', 'pfp ifpi ifp ufp fp ufpi') as $v)
 		{
 			if(isset($$v))
 			{
@@ -858,7 +932,9 @@ class YNDb
 		//echo '</pre>result:<pre>';
 		//print_r($t);
 		//echo '</pre>';
-		
+
+		unset($t['__yndb_system_col']);
+
 		return $t;
 	}
 	
@@ -924,7 +1000,7 @@ class YNDb
 			if(empty($limit[1])) array_unshift($limit, 0);
 		}
 		if(!is_array($cond)) $cond = array($cond);
-		if(!is_array($cond[0])) $cond[0] = explode(' ', $cond[0]);
+		if(!is_array($cond[0])) $cond[0] = explode(' ', $cond[0], 3);
 		if($col && is_string($col)) $col = array_map('trim',explode(',',$col));
 		if($col)
 		{
@@ -1263,7 +1339,7 @@ class YNDb
 		$success = false;
 		
 		$this->I->meta = $meta;
-		
+
 		try
 		{
 			$res = $this->select( $name, $crit );
@@ -1277,15 +1353,21 @@ class YNDb
 			
 			// so, we use a conventional f* instead of rf*
 			
-			if($pfp = fopen_cached($this->dir.'/'.$name.'.pri', 'r+b'))
+			if(false !== ($pfp = fopen_cached($this->dir.'/'.$name.'.pri', 'r+b')))
 			{
 				foreach($res as $data) $this->I->delete_primary($pfp, $data, $aname);
 			}else
 			{
 				throw new Exception('Primary index file corrupt.');
 			}
-			
-			$ifpi = fopen_cached($this->dir.'/'.$name.'.idx', 'r+b');
+
+			/**
+			 * TODO: better handle situation when there is no .idx file, as it is not required
+			 * when there only exist UNIQUE indexes with not TEXT values
+			 *
+			 * Actually, in the case above Warning will occur
+			 */
+			if(sizeof($index) || sizeof($unique)) $ifpi = fopen_cached($this->dir.'/'.$name.'.idx', 'r+b');
 			
 			if(sizeof($index) && $ifpi && ($ifp  = fopen_cached($this->dir.'/'.$name.'.btr', 'r+b')))
 			{
@@ -1374,7 +1456,12 @@ class YNDb
 		$this->unlock_table($name);
 		
 		if(!$success) return false;
-		
+
+		foreach($res as $k=>$v)
+		{
+			unset($res[$k]['__offset']); // user does need to know about existense of this field
+		}
+
 		return ($res);
 	}
 	
@@ -1396,6 +1483,8 @@ class YNDb
 		$success = false;
 		
 		$this->I->meta = $meta;
+
+		$new_data = array_change_key_case($new_data, CASE_LOWER);
 		
 		/* The reason why we rtrim all strings in new data is simple -- index for
 		   *TEXT fields returns rtrimmed strings */
@@ -1413,7 +1502,28 @@ class YNDb
 			if($res === false) break;
 			
 			$fp = fopen_cached($this->dir.'/'.$name.'.dat', 'r+b');
-			
+
+			/* fitting the results into the limits */
+
+			foreach($new_data as $k => $v)
+			{
+				$type = $fields[$k];
+				$d = $new_data[$k];
+
+				if($type == 'TINYTEXT' && strlen($d) > 255)
+				{
+					$new_data[$k] = substr($d, 0, 255);
+
+				}else if($type == 'TEXT' && strlen($d) > 65535)
+				{
+					$new_data[$k] = substr($d, 0, 65535);
+					
+				}else if($type == 'LONGTEXT' && strlen($d) > self::MAX_LEN)
+				{
+					$new_data[$k] = substr($d, 0, self::MAX_LEN);
+				}
+			}
+
 			/* PHASE 0: Check that row update will not cause "Duplicate key" errors for UNIQUE index  */
 			
 			$need_unique_update = sizeof($unique) && sizeof( array_intersect($unique,array_keys($new_data)) );
@@ -1503,8 +1613,8 @@ class YNDb
 					{
 						if(rtrim($data[$unique_name]) == $new_data[$unique_name]) continue;
 
-						$this->I->delete_unique($ufp, $data, $fields, $unique_name);
-						$this->I->insert_unique($ufp, $new_data, $fields, $unique_name, $data['__offset']);
+						$this->I->delete_unique($ufp, $ufpi, $fp, $data, $fields, $unique_name);
+						$this->I->insert_unique($ufp, $ufpi, $fp, $new_data, $fields, $unique_name, $data['__offset']);
 					}
 				}
 			}
@@ -1525,7 +1635,7 @@ class YNDb
 					{
 						if(rtrim($data[$index_name]) == $new_data[$index_name]) continue; // no need to update it :))
 
-						$this->I->delete_index($ifp, $ifpi, $data, $fields, $index_name, $data['__offset']);
+						$this->I->delete_index($ifp, $ifpi, $fp, $data, $fields, $index_name, $data['__offset']);
 						$this->I->insert_index($ifp, $ifpi, $new_data, $fields, $index_name, $data['__offset']);
 					}
 				}
@@ -1582,10 +1692,6 @@ class YNDb
 									$ins .= $od;
 								}else
 								{
-									if($length == 'C' && strlen($d) > 255) $d = substr($d, 0, 255);
-									else if($length == 'S' && strlen($d) > 65535) $d = substr($d, 0, 65535);
-									else if($length == 'l' && strlen($d) > self::MAX_LEN) $d = substr($d, 0, self::MAX_LEN);
-									
 									if(strlen($d) > strlen($od))
 									{
 										//$d = substr($d, 0, strlen($od));

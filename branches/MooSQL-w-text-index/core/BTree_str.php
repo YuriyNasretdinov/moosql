@@ -16,7 +16,9 @@
 
 class YNBTree_str
 {
+	/** @var YNDb */
 	protected $DB   = null;
+	/** @var YNBTree_Idx_gen */
 	protected $BTRI = null;
 	
 	function __construct($db_obj)
@@ -30,7 +32,14 @@ class YNBTree_str
 		$this->DB   = null;
 		$this->BTRI = null;
 	}
-	
+
+	public function str_hash($str)
+	{
+	    $ret = crc32($str);
+	    //echo "<div>hash = $ret</div>";
+	    return $ret;
+	}
+
 	/*
 	
 	Perform search in a B-Tree
@@ -42,12 +51,14 @@ class YNBTree_str
 	$fields -- the array of fields for current table
 	
 	
-	Returns either FALSE or offset to the row
+	Returns either FALSE or array(value, offset) to the row
 	
 	*/
 	
 	function search($ufp, $ifp, $fp, $fields, $field_name, &$meta, $value)
 	{
+		$old_pos = ftell($fp);
+
 		//echo '<div><b>search:</b><pre>', !print_r( func_get_args() ), '</pre></div>';
 		/*
 		$trace = debug_backtrace(false); // without "object"
@@ -69,30 +80,33 @@ class YNBTree_str
 		
 		$value = rtrim($value);
 		
-		$v = crc32($value);
+		$v = $this->str_hash($value);
 		
 		//echo '<b>search</b> '.$v.'<br/>';
 		
 		$res_list = $this->BTRI->search($ufp, $ifp, $meta, $v);
-		
-		if(!$res_list || !sizeof($res_list)) return false;
-		
+
 		//print_r($res_list);
+
+		if(!$res_list || !sizeof($res_list)) return false;
 		
 		foreach($res_list as $offset)
 		{
 			fseek($fp, $offset, SEEK_SET);
 			
 			$res = $this->DB->read_row($fields, $fp);
-			
-			if($res[$field_name] == $value) 
+
+			//echo ' <b>res:</b> ';
+			//print_r($res);
+
+			if($res[$field_name] == $value)
 			{
-				//print_r($res);
-				
+				fseek($fp, $old_pos);
 				return array($value, $offset);
 			}
 		}
 		
+		fseek($fp, $old_pos);
 		return false; // nothing found :(
 	}
 	
@@ -103,22 +117,22 @@ class YNBTree_str
 	
 	function insert($ufp, $ifp, $fp, $fields, $field_name, &$meta, $value, $offset)
 	{
-		if($this->search($ufp, $ifp, $fp, $fields, $field_name, $meta, $value) !== false) throw new Exception('Duplicate key for '.$field_name);
-		
 		$value = rtrim($value);
-		
-		$v = crc32($value);
-		
-		//echo '<b>insert</b> '.$v.'<br/>';
+		$v = $this->str_hash($value);
+		//echo '<br/><b>insert</b> '.$value.' ('.$v.') with offset = '.$offset.'<br/>';
+
+		if($this->search($ufp, $ifp, $fp, $fields, $field_name, $meta, $value) !== false) throw new Exception('Duplicate key for '.$field_name);
 		
 		return $this->BTRI->insert($ufp, $ifp, $meta, $v, $offset);
 	}
 	
 	function delete($ufp, $ifp, $fp, $fields, $field_name, &$meta, $value)
 	{
-		if( false === ($offset = $this->search($ufp, $ifp, $fp, $fields, $field_name, $meta, $value)) ) return true;
-		
-		return $this->BTRI->delete($ufp, $ifp, $meta, crc32(rtrim($value)), $offset);
+		if( false === ($res = $this->search($ufp, $ifp, $fp, $fields, $field_name, $meta, $value)) ) return true;
+
+		list($value, $offset) = $res;
+
+		return $this->BTRI->delete($ufp, $ifp, $meta, $this->str_hash(rtrim($value)), $offset);
 	}
 	
 	// UPDATE is actually never called

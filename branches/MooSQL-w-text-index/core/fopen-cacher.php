@@ -24,6 +24,8 @@ function fopen_cached($name, $mode, $lock = false) // note, that arguments are n
 		fclose($el['fp']); // fclose releases lock, if it was set
 	}else if(!$fp)
 	{
+		print_r(debug_backtrace());
+
 		return false; // do not cache fopen() failures
 	}
 	
@@ -34,7 +36,10 @@ function fopen_cached($name, $mode, $lock = false) // note, that arguments are n
 	{
 		throw new Exception('Lock is no longer supported in fopen_cached(), use flock_cached() instead');
 	}
-	
+
+	// before changing structure of data of this function, see
+	// YNDb::drop()
+
 	$fopen_cache[$name.':'.$mode] = array('fp'=>$fp, 'mode'=>$mode, 'locked'=>$lock);
 	
 	return $fp;
