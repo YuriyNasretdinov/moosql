@@ -24,7 +24,7 @@ function fopen_cached($name, $mode, $lock = false) // note, that arguments are n
 		fclose($el['fp']); // fclose releases lock, if it was set
 	}else if(!$fp)
 	{
-		print_r(debug_backtrace());
+		//print_r(debug_backtrace());
 
 		return false; // do not cache fopen() failures
 	}
