@@ -45,7 +45,7 @@ final class YNBTree_Idx_gen
             
             $dat = fread($fpi, 8);
             
-            if(!$dat || strlen($dat)!=8) break;
+            if(!strlen($dat) || strlen($dat)!=8) break;
             
             list(,$res_item,$off) = unpack('l2', $dat);
             $res[] = $res_item;
@@ -119,7 +119,7 @@ final class YNBTree_Idx_gen
             
             $dat = fread($fpi, 8);
             
-            if(!$dat || strlen($dat)!=8) break;
+            if(!strlen($dat) || strlen($dat)!=8) break;
             
 			//echo '<pre>(LINE '.__LINE__.')<br>off: ',!print_r($off),', res_item: ',!print_r($res_item),'</pre>';
             

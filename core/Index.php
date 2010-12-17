@@ -14,22 +14,31 @@ require YNDB_HOME.'/BTree_str.php';
 final class YNIndex
 {
 	protected $DB = null; /* DB instance */
+
+	/** @var YNBTree_gen 1 byte signed instance */
+	public $BTR1s = null;
+	/** @var YNBTree_gen 4 bytes signed instance */
+	public $BTR4s = null;
+	/** @var YNBTree_gen DOUBLE instance */
+	public $BTRd  = null;
+
+	/** @var YNBTree_Idx_gen 1 byte signed instance */
+	public $BTRI1s = null;
+	/** @var YNBTree_Idx_gen 4 bytes signed instance */
+	public $BTRI4s = null;
+	/** @var YNBTree_Idx_gen 1 byte DOUBLE instance */
+	public $BTRId  = null;
 	
-	public /* readonly */ $BTR1s = null; // YNBTree_gen 1 byte signed instance
-	public /* readonly */ $BTR4s = null; // YNBTree_gen 4 bytes signed instance
-	public /* readonly */ $BTRd  = null; // YNBTree_gen DOUBLE instance
-	
-	public /* readonly */ $BTRI1s = null; // YNBTree_Idx_gen 1 byte signed instance
-	public /* readonly */ $BTRI4s = null; // YNBTree_Idx_gen 4 bytes signed instance
-	public /* readonly */ $BTRId  = null; // YNBTree_Idx_gen DOUBLE instance
-	
-	
-	public /* readonly */ $BTR_str = null;
-	public /* readonly */ $BTRI_str = null;
+	/** @var YNBTree_str string instance */
+	public $BTR_str = null;
+	public $BTRI_str = null;
 	
 	// meta must be set explicitly for each table you work with
 	public $meta = null; /* metadata for YNBTree_gen and YNBTree_Idx_gen */
-	
+
+	/**
+	 * @param YNDb $db_obj
+	 */
 	function __construct($db_obj)
 	{
 		$this->DB = $db_obj;
@@ -141,7 +150,8 @@ final class YNIndex
 	
 		fseek($pfp, 4*$acnt);
 		fwrite($pfp, pack('l', $row_start));
-		
+
+		if(!isset($GLOBALS['primary_time'])) $GLOBALS['primary_time'] = 0;
 		$GLOBALS['primary_time'] += microtime(true) - $start;
 		
 		return true;
